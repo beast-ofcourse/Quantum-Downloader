@@ -8,9 +8,11 @@ from typing import Any, Dict, List
 
 
 def export_json(result: Dict[str, Any], output_path: str) -> None:
+    target_name = result.get("target_name") or result.get("channel_name") or "target"
     payload = {
-        "channel_name": result["channel_name"],
-        "channel_id": result.get("channel_id"),
+        "target_type": result.get("target_type", "channel"),
+        "target_name": target_name,
+        "target_id": result.get("target_id") or result.get("channel_id"),
         "url": result["url"],
         "video_count": len(result["videos"]),
         "videos": result["videos"],

@@ -11,7 +11,7 @@ limiting, and a clean CLI.
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Built with yt-dlp](https://img.shields.io/badge/built%20with-yt--dlp-red.svg)](https://github.com/yt-dlp/yt-dlp)
-[![Tests](https://img.shields.io/badge/tests-39%20passing-brightgreen.svg)](#development)
+[![Tests](https://img.shields.io/badge/tests-53%20passing-brightgreen.svg)](#development)
 
 ---
 
@@ -62,6 +62,8 @@ Downloading 3 video(s) from 'Fireship' to ./downloads
 ## Features
 
 - **Whole-channel downloads** — point it at a channel URL and walk away.
+- **Playlists too** — pass `--playlist` with a playlist URL, a `watch?v=…&list=…`
+  link, or a bare `PL…` id to archive a playlist with the same machinery.
 - **Resumable** — state is saved to a manifest after every video; kill the process
   or lose the connection and re-run to continue exactly where you left off.
 - **Idempotent** — re-running never re-downloads completed work.
@@ -132,19 +134,22 @@ pip install dist/ytchannel-1.0.0-py3-none-any.whl
 
 ### `ytchannel index <url>`
 
-Resolves a channel and writes its video list to a file (no downloads).
+Resolves a channel (or playlist, with `--playlist`) and writes its video list to a
+file (no downloads).
 
 | Flag | Description |
 |------|-------------|
 | `-o, --output` | Output path; `.csv` exports CSV, anything else exports JSON. |
+| `--playlist` | Treat `<url>` as a playlist (URL, `watch?v=…&list=…`, or bare `PL…` id). |
 
 ### `ytchannel download <url>`
 
-Downloads (filtered) videos from a channel.
+Downloads (filtered) videos from a channel (or playlist, with `--playlist`).
 
 | Flag | Description |
 |------|-------------|
 | `-o, --output` | Base download directory (default `./downloads`). |
+| `--playlist` | Treat `<url>` as a playlist (URL, `watch?v=…&list=…`, or bare `PL…` id). |
 | `--quality` | `best` (default), `worst`, or a height like `1080p`. |
 | `--audio-only` | Download audio only, converted to mp3 (needs ffmpeg). |
 | `--dry-run` | Print the plan (count, date range) and exit without downloading. |
@@ -160,10 +165,12 @@ Downloads (filtered) videos from a channel.
 ## Output structure
 
 ```
-<output_dir>/<channel_name>/<upload_date>_<video_title>.<ext>
+<output_dir>/<target_name>/<upload_date>_<video_title>.<ext>
 ```
 
-State lives in `<channel_name>.manifest.json` next to the output directory.
+`target_name` is the resolved channel or playlist name. State lives in
+`<target_name>.manifest.json` next to the output directory — each channel and each
+playlist gets its own folder and manifest, so they never collide.
 
 ## Configuration
 
@@ -200,7 +207,6 @@ Precedence: **CLI flags > config file > built-in defaults**.
 ## Roadmap
 
 - Limited concurrent downloads (2–4 workers) as an opt-in flag
-- `--playlist <url>` mode (same machinery, different entry point)
 - SQLite manifest backend for very large channels (5000+ videos)
 - Live / premiere detection and handling
 
@@ -208,7 +214,7 @@ Precedence: **CLI flags > config file > built-in defaults**.
 
 ```bash
 pip install -e ".[dev]"
-pytest            # run the test suite (39 tests)
+pytest            # run the test suite (53 tests)
 ruff check ytchannel   # lint
 ```
 

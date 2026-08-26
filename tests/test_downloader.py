@@ -23,6 +23,12 @@ def test_format_selector_quality_and_audio():
     assert Downloader("/o", "c", audio_only=True).format_selector() == "bestaudio/best"
 
 
+def test_downloader_uses_target_name_for_dir():
+    # The second positional arg is the target name (channel or playlist).
+    d = Downloader("/o", "CoolPlaylist")
+    assert "CoolPlaylist" in d.channel_dir
+
+
 def test_classify_error():
     assert classify_error("This video is private video") == "permanent"
     assert classify_error("Video unavailable in your country") == "permanent"

@@ -31,7 +31,7 @@ from .config import DEFAULT_CONFIG_PATH, Config
 from .downloader import Downloader, DownloadReporter
 from .indexer import dry_run_summary, export_csv, export_json
 from .manifest import Manifest, ManifestError
-from .resolver import ResolutionError, resolve_channel
+from .resolver import ResolutionError, resolve_channel, resolve_playlist
 from .utils.organize import sanitize_segment
 from .utils.rate_limit import RateLimiter
 
@@ -144,14 +144,23 @@ def _fail(message: str, code: int = 1) -> "typer.Exit":
     return typer.Exit(code=code)
 
 
+def _manifest_path(output_dir: str, target_name: str) -> str:
+    """Path to the manifest file for a given target (channel or playlist)."""
+    return str(Path(output_dir) / (sanitize_segment(target_name) + ".manifest.json"))
+
+
 @app.command()
 def index(
-    url: str = typer.Argument(..., help="Channel URL (@handle, /c/name, /channel/UC..., /user/name)."),
+    url: str = typer.Argument(..., help="Channel or playlist URL."),
     output: str = typer.Option("channel.json", "--output", "-o", help="Output file (.json or .csv)."),
+    playlist: Optional[bool] = typer.Option(None, "--playlist", is_flag=True, help="Treat the URL as a playlist instead of a channel."),
 ) -> None:
-    """List a channel's videos and export metadata (no downloads)."""
+    """List a channel's (or playlist's) videos and export metadata (no downloads)."""
     try:
-        result = resolve_channel(url, quiet=True)
+        if playlist:
+            result = resolve_playlist(url, quiet=True)
+        else:
+            result = resolve_channel(url, quiet=True)
     except ResolutionError as e:
         raise _fail(str(e))
 
@@ -160,15 +169,17 @@ def index(
     else:
         export_json(result, output)
 
+    name = result.get("target_name") or result.get("channel_name") or "target"
     console.print(
         f"[green]Exported[/] {len(result['videos'])} video(s) from "
-        f"'{result['channel_name']}' to [bold]{output}[/]"
+        f"'{name}' to [bold]{output}[/]"
     )
 
 
 @app.command()
 def download(
-    url: str = typer.Argument(..., help="Channel URL (@handle, /c/name, /channel/UC..., /user/name)."),
+    url: str = typer.Argument(..., help="Channel or playlist URL."),
+    playlist: Optional[bool] = typer.Option(None, "--playlist", is_flag=True, help="Treat the URL as a playlist instead of a channel."),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Base download directory (default ./downloads)."),
     quality: Optional[str] = typer.Option(None, "--quality", help="e.g. 1080p, best, worst (default best)."),
     audio_only: Optional[bool] = typer.Option(None, "--audio-only", is_flag=True, help="Download audio only (mp3)."),
@@ -183,7 +194,7 @@ def download(
     delay: Optional[float] = typer.Option(None, "--delay", help="Seconds to wait between downloads (default 2)."),
     config: Optional[str] = typer.Option(None, "--config", help="Path to a TOML config file."),
 ) -> None:
-    """Download (filtered) videos from a channel, resumably."""
+    """Download (filtered) videos from a channel or playlist, resumably."""
     cfg = Config.from_file(config or DEFAULT_CONFIG_PATH)
     cli_opts = {
         "output_dir": output,
@@ -201,11 +212,15 @@ def download(
     cfg.merge_cli(cli_opts)
 
     try:
-        result = resolve_channel(url, quiet=True)
+        if playlist:
+            result = resolve_playlist(url, quiet=True)
+        else:
+            result = resolve_channel(url, quiet=True)
     except ResolutionError as e:
         raise _fail(str(e))
 
-    channel_name = result["channel_name"]
+    target_name = result.get("target_name") or result.get("channel_name") or "target"
+    target_type = result.get("target_type", "channel")
     videos = result["videos"]
 
     # Apply filters at the reconciliation step (Phase 4).
@@ -217,7 +232,8 @@ def download(
 
     if dry_run:
         summary = dry_run_summary({**result, "videos": videos})
-        console.print(f"[bold]Channel:[/] {channel_name}")
+        label = "Playlist" if target_type == "playlist" else "Channel"
+        console.print(f"[bold]{label}:[/] {target_name}")
         console.print(f"[bold]Videos to download:[/] {summary['count']}")
         if summary["date_range"]:
             console.print(
@@ -230,15 +246,13 @@ def download(
         )
         return
 
-    manifest_path = str(
-        Path(cfg.output_dir) / (sanitize_segment(channel_name) + ".manifest.json")
-    )
+    manifest_path = _manifest_path(cfg.output_dir, target_name)
     try:
         manifest = Manifest(manifest_path)
     except ManifestError as e:
         raise _fail(str(e))
 
-    manifest.reconcile(videos, channel_name)
+    manifest.reconcile(videos, target_name)
 
     # Apply the filters to the pending set: only videos in the (filtered) list
     # that still need work are downloaded this run. This keeps --limit / date
@@ -251,13 +265,13 @@ def download(
         return
 
     console.print(
-        f"[bold]Downloading[/] {len(pending)} video(s) from '{channel_name}' to "
+        f"[bold]Downloading[/] {len(pending)} video(s) from '{target_name}' to "
         f"[bold]{cfg.output_dir}[/]"
     )
 
     downloader = Downloader(
         output_dir=cfg.output_dir,
-        channel_name=channel_name,
+        target_name=target_name,
         quality=cfg.quality,
         audio_only=cfg.audio_only,
         write_thumbnail=cfg.write_thumbnail,
