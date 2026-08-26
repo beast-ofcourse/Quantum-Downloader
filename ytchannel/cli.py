@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 import shutil
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Optional
 
 import typer
 from rich.console import Console
@@ -23,11 +23,11 @@ from . import __version__
 from .archiver import run_archiver
 from .config import DEFAULT_CONFIG_PATH, Config
 from .downloader import Downloader
-from .indexer import dry_run_summary, export_csv, export_json
+from .indexer import dry_run_summary, export_csv, export_json, export_jsonl
 from .manifest import Manifest, ManifestError
 from .planner import filter_videos, plan_downloads
 from .resolver import ResolutionError, resolve_channel, resolve_playlist
-from .utils.organize import sanitize_segment
+from .storage import manifest_path, storage_key
 
 app = typer.Typer(
     help="Archive entire YouTube channels with resumable, idempotent downloads.",
@@ -78,31 +78,12 @@ def _check_ffmpeg(require: bool) -> None:
     )
 
 
-def _storage_key(result: Dict[str, Any]) -> str:
-    """Stable on-disk identity for a target: type + id.
-
-    Uses the immutable YouTube id, not the display title, so a channel or
-    playlist renaming itself does not orphan the manifest or download folder.
-    """
-    ttype = result.get("target_type", "target")
-    tid = result.get("target_id") or result.get("target_name") or "unknown"
-    return f"{ttype}_{tid}"
-
-
-def _manifest_path(output_dir: str, key: str) -> str:
-    """Path to the manifest file for a given target (channel or playlist).
-
-    Keyed by the stable storage key (target_type + target_id), not the display
-    name, so title renames don't break resume/idempotency.
-    """
-    return str(Path(output_dir) / (sanitize_segment(key) + ".manifest.json"))
-
-
 @app.command()
 def index(
     url: str = typer.Argument(..., help="Channel or playlist URL."),
     output: str = typer.Option("channel.json", "--output", "-o", help="Output file (.json or .csv)."),
     playlist: Optional[bool] = typer.Option(None, "--playlist", is_flag=True, help="Treat the URL as a playlist instead of a channel."),
+    jsonl: Optional[str] = typer.Option(None, "--jsonl", help="Write a JSONL (one video per line) export to this file."),
 ) -> None:
     """List a channel's (or playlist's) videos and export metadata (no downloads)."""
     try:
@@ -124,6 +105,10 @@ def index(
         f"'{name}' to [bold]{output}[/]"
     )
 
+    if jsonl:
+        export_jsonl(result, jsonl)
+        console.print(f"[green]Wrote JSONL to {jsonl}[/]")
+
 
 @app.command()
 def download(
@@ -144,7 +129,13 @@ def download(
     cookies_from_browser: Optional[str] = typer.Option(None, "--cookies-from-browser", help="Browser to read cookies from (chrome, firefox, edge, ...). Conflicts with --cookies."),
     delay: Optional[float] = typer.Option(None, "--delay", help="Seconds to wait between downloads (default 2)."),
     retries: Optional[int] = typer.Option(None, "--retries", help="Max retries per video on transient errors (default 3)."),
+    concurrency: int = typer.Option(1, "--concurrency", help="Number of parallel downloads (default 1 = sequential)."),
     config: Optional[str] = typer.Option(None, "--config", help="Path to a TOML config file."),
+    manifest_backend: str = typer.Option("auto", "--manifest", help="Manifest backend: auto | json | sqlite."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress the progress UI."),
+    verbose: bool = typer.Option(False, "--verbose", help="Pass yt-dlp warnings/debug through."),
+    log: Optional[str] = typer.Option(None, "--log", help="Write a per-run log to this file."),
+    template: Optional[str] = typer.Option(None, "--template", help="Override the yt-dlp output template (e.g. '%(title)s.%(ext)s')."),
 ) -> None:
     """Download (filtered) videos from a channel or playlist, resumably."""
     cfg = Config.from_file(config or DEFAULT_CONFIG_PATH)
@@ -161,13 +152,25 @@ def download(
         "cookies": cookies,
         "delay": delay,
         "max_retries": retries,
+        "concurrency": concurrency,
         "proxy": proxy,
         "cookies_from_browser": cookies_from_browser,
+        "manifest_backend": manifest_backend,
+        "quiet": quiet,
+        "verbose": verbose,
+        "log_file": log,
+        "template": template,
     }
     cfg.merge_cli(cli_opts)
 
+    if cfg.concurrency < 1:
+        raise _fail("--concurrency must be >= 1")
+
     if cfg.cookies and cfg.cookies_from_browser:
         raise _fail("Cannot use both --cookies and --cookies-from-browser.")
+
+    if cfg.manifest_backend not in ("auto", "json", "sqlite"):
+        raise _fail("--manifest must be one of: auto, json, sqlite")
 
     try:
         if playlist:
@@ -179,7 +182,7 @@ def download(
 
     target_name = result.get("target_name") or result.get("channel_name") or "target"
     target_type = result.get("target_type", "channel")
-    storage_key = _storage_key(result)
+    key = storage_key(result)
     videos = result["videos"]
 
     # Apply filters at the reconciliation step (Phase 4).
@@ -203,9 +206,9 @@ def download(
         )
         return
 
-    manifest_path = _manifest_path(cfg.output_dir, storage_key)
+    manifest_file = manifest_path(cfg.output_dir, key)
     try:
-        manifest = Manifest(manifest_path)
+        manifest = Manifest.open(manifest_file, backend=cfg.manifest_backend)
     except ManifestError as e:
         raise _fail(str(e))
 
@@ -217,7 +220,7 @@ def download(
         cfg,
         manifest,
         plan,
-        target_key=storage_key,
+        target_key=key,
         downloader_cls=Downloader,  # references cli-module Downloader so tests can monkeypatch cli_mod.Downloader
         console=console,
     )
@@ -247,9 +250,10 @@ def verify(
     delete_orphans: bool = typer.Option(False, "--delete-orphans", help="Delete orphan media files on disk (asks for confirmation)."),
 ) -> None:
     """Verify that downloaded files match the manifest and surface orphans."""
+    cfg = Config.from_file(DEFAULT_CONFIG_PATH)
     output_dir = output or "./downloads"
     if target.endswith(".manifest.json"):
-        manifest_path = target
+        manifest_file = target
         if output is None:
             output_dir = str(Path(target).parent)
     else:
@@ -260,11 +264,11 @@ def verify(
                 result = resolve_channel(target, quiet=True)
         except (ResolutionError, ValueError) as e:
             raise _fail(str(e)) from e
-        storage_key = _storage_key(result)
-        manifest_path = _manifest_path(output_dir, storage_key)
+        key = storage_key(result)
+        manifest_file = manifest_path(output_dir, key)
 
     try:
-        manifest = Manifest(manifest_path)
+        manifest = Manifest.open(manifest_file, backend=cfg.manifest_backend)
     except ManifestError as e:
         raise _fail(str(e))
 
@@ -322,11 +326,11 @@ def update(
     except (ResolutionError, ValueError) as e:
         raise _fail(str(e)) from e
 
-    storage_key = _storage_key(result)
-    manifest_path = _manifest_path(output_dir, storage_key)
+    key = storage_key(result)
+    manifest_file = manifest_path(output_dir, key)
 
     try:
-        manifest = Manifest(manifest_path)
+        manifest = Manifest.open(manifest_file, backend=cfg.manifest_backend)
     except ManifestError as e:
         raise _fail(str(e))
 
@@ -342,6 +346,50 @@ def update(
         f"[green]Re-indexed[/] '{name}': added {len(added)} new video(s), "
         f"{len(removed)} no longer in source (kept in manifest)."
     )
+
+
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind host (default localhost)."),
+    port: int = typer.Option(8765, "--port", help="Bind port (auto-increments if busy)."),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Do not auto-open a browser."),
+    reload: bool = typer.Option(False, "--reload", help="Enable auto-reload (dev only)."),
+) -> None:
+    """Start the local web UI server (opens http://<host>:<port>/)."""
+    import socket
+    import webbrowser
+
+    # Lazy import so `ytchannel --help` and other commands work without fastapi.
+    from .web import create_app
+
+    if host not in ("127.0.0.1", "localhost"):
+        err_console.print(
+            f"Warning: serving on {host} — the web UI has NO authentication and "
+            f"will be exposed to the network."
+        )
+
+    # Pick a free port: try host:port, increment on address-in-use.
+    actual_port = port
+    while True:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind((host, actual_port))
+            break
+        except OSError:
+            actual_port += 1
+
+    url = f"http://{host}:{actual_port}/"
+    console.print(f"Quantum-Downloader web UI running at {url}")
+
+    if not no_browser:
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
+
+    import uvicorn
+
+    uvicorn.run(create_app(), host=host, port=actual_port, reload=reload)
 
 
 def main() -> None:

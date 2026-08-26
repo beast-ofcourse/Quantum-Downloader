@@ -35,6 +35,7 @@ ytchannel = "ytchannel.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0", "ruff>=0.1", "mypy>=1.0"]
+web = ["fastapi>=0.110", "uvicorn[standard]>=0.27"]
 
 [project.urls]
 Homepage = "https://github.com/beast-ofcourse/Quantum-Downloader"
@@ -46,6 +47,9 @@ include = ["ytchannel*"]
 
 [tool.setuptools.dynamic]
 version = {attr = "ytchannel.__version__"}
+
+[tool.setuptools.package-data]
+ytchannel = ["web/static/**", "web/static/*"]
 
 [tool.ruff]
 line-length = 100

@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from .config import Config
-from .manifest import Manifest
+from .manifest import BaseManifest
 
 
 def _filter_dates(
@@ -76,7 +76,7 @@ class DownloadPlan:
 
 
 def plan_downloads(
-    videos: List[Dict[str, Any]], manifest: Manifest, config: Config
+    videos: List[Dict[str, Any]], manifest: BaseManifest, config: Config
 ) -> DownloadPlan:
     """Build a :class:`DownloadPlan` from filtered videos and the manifest.
 

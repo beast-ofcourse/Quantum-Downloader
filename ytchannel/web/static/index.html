@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ytchannel — YouTube Archiver</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f1216'/%3E%3Cpath d='M13 10l9 6-9 6z' fill='%234f8cff'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">▶</span>
+      <span class="brand-name">ytchannel</span>
+      <span class="brand-sub">YouTube Archiver</span>
+    </div>
+    <div class="header-status" title="Backend connection">
+      <span id="health-dot" class="dot dot-unknown" aria-hidden="true"></span>
+      <span id="health-text">connecting…</span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- ============ LEFT PANE: setup form ============ -->
+    <section class="pane pane-left" aria-label="Setup">
+      <h2 class="pane-title">New download</h2>
+
+      <form id="job-form" class="form" autocomplete="off" novalidate>
+        <div class="field">
+          <label for="url">Channel or playlist URL</label>
+          <input
+            type="text"
+            id="url"
+            name="url"
+            placeholder="https://www.youtube.com/@channel  or  …/playlist?list=…"
+            spellcheck="false"
+          />
+          <p class="field-error" id="url-error" hidden></p>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="quality">Quality</label>
+            <input type="text" id="quality" name="quality" placeholder="best / 1080p" spellcheck="false" />
+          </div>
+          <div class="field">
+            <label for="limit">Limit (videos)</label>
+            <input type="number" id="limit" name="limit" min="1" placeholder="all" />
+          </div>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="after">After (YYYYMMDD)</label>
+            <input type="text" id="after" name="after" placeholder="20240101" inputmode="numeric" maxlength="8" />
+          </div>
+          <div class="field">
+            <label for="before">Before (YYYYMMDD)</label>
+            <input type="text" id="before" name="before" placeholder="20241231" inputmode="numeric" maxlength="8" />
+          </div>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="cookies">Cookies file path</label>
+            <input type="text" id="cookies" name="cookies" placeholder="/path/to/cookies.txt" spellcheck="false" />
+          </div>
+          <div class="field">
+            <label for="delay">Delay (seconds)</label>
+            <input type="number" id="delay" name="delay" min="0" step="0.1" placeholder="0" />
+          </div>
+        </div>
+
+        <fieldset class="checks">
+          <legend>Options</legend>
+          <label class="check"><input type="checkbox" id="audio_only" name="audio_only" /> Audio only</label>
+          <label class="check"><input type="checkbox" id="write_thumbnail" name="write_thumbnail" /> Write thumbnail</label>
+          <label class="check"><input type="checkbox" id="write_description" name="write_description" /> Write description</label>
+          <label class="check"><input type="checkbox" id="write_subs" name="write_subs" /> Write subtitles</label>
+          <label class="check"><input type="checkbox" id="dry_run" name="dry_run" /> Dry run</label>
+        </fieldset>
+
+        <details class="advanced">
+          <summary>Advanced options</summary>
+          <div class="field-row">
+            <div class="field">
+              <label for="proxy">Proxy</label>
+              <input type="text" id="proxy" name="proxy" placeholder="http://host:port" spellcheck="false" />
+            </div>
+            <div class="field">
+              <label for="concurrency">Concurrency</label>
+              <input type="number" id="concurrency" name="concurrency" min="1" placeholder="1" />
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="template">Output template</label>
+              <input type="text" id="template" name="template" placeholder="%(title)s.%(ext)s" spellcheck="false" />
+            </div>
+            <div class="field">
+              <label for="manifest_backend">Manifest backend</label>
+              <input type="text" id="manifest_backend" name="manifest_backend" placeholder="default" spellcheck="false" />
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="log_file">Log file</label>
+              <input type="text" id="log_file" name="log_file" placeholder="/path/to/log.txt" spellcheck="false" />
+            </div>
+            <div class="field">
+              <label for="cookies_from_browser">Cookies from browser</label>
+              <input type="text" id="cookies_from_browser" name="cookies_from_browser" placeholder="chrome / firefox" spellcheck="false" />
+            </div>
+          </div>
+          <div class="checks">
+            <label class="check"><input type="checkbox" id="quiet" name="quiet" /> Quiet</label>
+            <label class="check"><input type="checkbox" id="verbose" name="verbose" /> Verbose</label>
+          </div>
+        </details>
+
+        <div class="actions">
+          <button type="submit" id="start-btn" class="btn btn-primary" disabled>Start Download</button>
+          <button type="button" id="dryrun-btn" class="btn btn-secondary" disabled>Dry Run (preview)</button>
+          <button type="button" id="cancel-btn" class="btn btn-danger" disabled>Cancel</button>
+        </div>
+
+        <p class="form-message" id="form-message" hidden></p>
+      </form>
+
+      <section class="targets" aria-label="Known targets">
+        <h3 class="section-title">Targets</h3>
+        <div id="targets-state" class="targets-state">Loading targets…</div>
+        <table class="targets-table" id="targets-table" hidden>
+          <thead>
+            <tr>
+              <th scope="col">Target</th>
+              <th scope="col">Done</th>
+              <th scope="col">Failed</th>
+              <th scope="col">Pending</th>
+            </tr>
+          </thead>
+          <tbody id="targets-body"></tbody>
+        </table>
+      </section>
+    </section>
+
+    <!-- ============ RIGHT PANE: live progress ============ -->
+    <section class="pane pane-right" aria-label="Progress">
+      <div class="progress-head">
+        <div class="progress-head-text">
+          <h2 class="pane-title">Progress</h2>
+          <div id="target-name" class="target-name">No active job</div>
+        </div>
+        <span id="status-pill" class="pill pill-idle">idle</span>
+      </div>
+
+      <div class="progress-overall">
+        <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progress-bar">
+          <div id="progress-fill" class="progress-fill"></div>
+        </div>
+        <div class="progress-meta">
+          <span id="counter" class="counter">0 / 0</span>
+          <span id="percent" class="percent">0%</span>
+        </div>
+      </div>
+
+      <div id="report" class="report" hidden></div>
+
+      <div class="video-list-wrap">
+        <div id="video-list-empty" class="empty-state">
+          No videos yet. Start a download to see live progress here.
+        </div>
+        <ul id="video-list" class="video-list" aria-live="polite"></ul>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

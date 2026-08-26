@@ -120,3 +120,60 @@ def test_check_files_present_missing_orphan(tmp_path):
     assert report["complete_missing"][0]["video_id"] == "v1"
     assert any(p.endswith("orphan.mkv") for p in report["orphan_on_disk"])
     assert not any(p.endswith(".txt") for p in report["orphan_on_disk"])
+
+
+def test_manifest_backends_roundtrip(tmp_path):
+    """Both JSON and SQLite backends must behave identically and persist."""
+    for backend in ("json", "sqlite"):
+        path = str(tmp_path / f"{backend}.manifest.json")
+        m = Manifest.open(path, backend=backend)
+        m.channel_name = "Chan"
+        m.reconcile(
+            [{"video_id": "v0", "title": "A"}, {"video_id": "v1", "title": "B"}],
+            "Chan",
+        )
+        m.mark_downloading("v0")
+        m.mark_complete("v0", "/tmp/a.mp4")
+        m.mark_failed("v1", "boom", permanent=True)
+
+        assert m.is_complete("v0") is True
+        assert m.get_pending() == []  # v0 complete, v1 permanent-failed excluded
+        assert m.get_failed() == ["v1"]
+
+        # Re-open the same path with the same backend; state must persist.
+        m2 = Manifest.open(path, backend=backend)
+        assert m2.is_complete("v0") is True
+        assert "v0" in m2.entries
+        assert m2.entries["v0"]["title"] == "A"
+        assert m2.entries["v1"]["title"] == "B"
+
+
+def test_manifest_sqlite_migration(tmp_path):
+    """A JSON manifest is migrated into SQLite non-destructively."""
+    json_path = tmp_path / "c.manifest.json"
+    json_path.write_text(
+        json.dumps(
+            {
+                "channel_name": "C",
+                "videos": {
+                    "v0": {
+                        "video_id": "v0",
+                        "title": "A",
+                        "status": "complete",
+                        "file_path": "/x",
+                        "downloaded_at": None,
+                        "attempts": 1,
+                        "last_error": None,
+                        "permanent": False,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    m = Manifest.open(str(json_path), backend="sqlite")
+    assert m.is_complete("v0") is True
+    assert m.entries["v0"]["title"] == "A"
+    # Original JSON file left in place (non-destructive).
+    assert json_path.exists()

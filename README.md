@@ -36,6 +36,8 @@ limiting, and a clean CLI.
 - [Limitations](#limitations)
 - [Roadmap](#roadmap)
 - [Development](#development)
+- [Shell completions](#shell-completions)
+- [Changelog](#changelog)
 - [License](#license)
 
 > **Scope & legal disclaimer.** This tool is for archiving content you have the
@@ -279,6 +281,49 @@ pip install -e ".[dev]"
 pytest            # run the test suite (55 tests)
 ruff check ytchannel   # lint
 ```
+
+## Web UI
+
+A local, browser-based control panel for non-technical users — paste a channel or
+playlist URL, watch downloads progress live, and cancel anytime. It drives the same
+resumable engine as the CLI.
+
+```bash
+pip install quantum-downloader[web]   # or: pip install -e ".[web]"
+ytchannel serve                        # opens http://127.0.0.1:8765/
+```
+
+- Binds **`127.0.0.1`** by default (localhost-only). Pass `--host 0.0.0.0` (or
+  another interface) to expose it, but note the UI has **no authentication** — the
+  command prints a clear warning when you do.
+- `--port` defaults to `8765` and auto-increments if the port is busy.
+- `--no-browser` skips the automatic browser open (useful over SSH).
+- **Same-origin protection:** all state-changing requests and the progress WebSocket
+  reject cross-site `Origin` headers (a malicious web page cannot drive your server),
+  while normal API/test clients that send no `Origin` header are allowed.
+
+## Shell completions
+
+`ytchannel` ships native shell completions via Typer — no extra setup or
+dependencies required.
+
+- Install completions for the current shell:
+
+  ```bash
+  ytchannel --install-completion [bash|zsh|fish]
+  ```
+
+- Print the completion script to source manually (instead of installing):
+
+  ```bash
+  ytchannel --show-completion [bash|zsh|fish]
+  ```
+
+Omit the shell name to let Typer detect the current shell.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release history and the semver policy.
 
 ## License
 

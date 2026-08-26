@@ -10,8 +10,8 @@ files touched, concrete subtasks, acceptance criteria, and verification.
 - [x] **Phase 1** — Internal Refactor (streamlined: `planner.py` + `archiver.py` seams; `download` is a thin adapter; 0.5 fix carried into `plan_downloads`)
 - [x] **Phase 2** — Core Commands (`verify`, `update`)
 - [x] **Phase 3** — Close Documented Limitations (native date filter, `--proxy`, `--cookies-from-browser`)
-- [ ] **Phase 4** — Scale Features (concurrent downloads, SQLite manifest backend)
-- [ ] **Phase 5** — Polish & Developer Experience
+- [x] **Phase 4** — Scale Features (concurrent downloads, SQLite manifest backend)
+- [x] **Phase 5** — Polish & Developer Experience (5.1–5.8 + web UI W0–W4 done & verified)
 
 **Dependency chain (read first):**
 - Phase 0 must land before anything else (CI gates all merges; pre-checks stop
@@ -174,7 +174,7 @@ Goal: make `--after/--before`, proxy, and browser cookies actually work.
 
 ## Phase 4 — Scale Features (Roadmap Items)
 
-> ⬜ **Status: Not started**.
+> ✅ **Status: Complete & verified** — 4.1 opt-in `--concurrency` (thread pool, shared global rate limiter, per-worker Downloader, locked manifest saves); 4.2 `Manifest` ABC + `JsonManifest`/`SqliteManifest` + `Manifest.open` factory (non-destructive JSON→SQLite migration, auto-select over 5000 entries).
 
 Goal: handle huge channels and go faster. Depends on Phase 1 seams + stable `Manifest` interface.
 
@@ -201,7 +201,7 @@ Goal: handle huge channels and go faster. Depends on Phase 1 seams + stable `Man
 
 ## Phase 5 — Polish & Developer Experience
 
-> ⬜ **Status: Not started**.
+> ✅ **Status: Complete & verified** — 5.1 `--quiet`/`--verbose`, 5.2 run log, 5.3 Windows path guard, 5.4 custom template, 5.5 batch ETA, 5.6 JSONL export, 5.7 CHANGELOG, 5.8 shell completions, and the web UI (W0–W4: `serve` command, FastAPI backend, JobStore/EventBus/WebReporter, split-action SPA, origin enforcement, cancel, packaging). Full suite 93 tests + ruff + mypy green; web UI verified end-to-end in a real browser (Playwright) with a fake downloader.
 
 Independent; slot in as time allows. (Acceptance/Verify added per plan convention — m3.)
 

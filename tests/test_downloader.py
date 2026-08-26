@@ -116,3 +116,23 @@ def test_cookies_and_browser_conflict():
 
     with pytest.raises(ValueError):
         Downloader("/o", "c", cookies="x.txt", cookies_from_browser="chrome")
+
+
+def test_ydl_opts_verbose_flag():
+    opts = Downloader("/o", "c", verbose=True)._build_ydl_opts(lambda d: None)
+    assert opts.get("verbose") is True
+    assert opts.get("no_warnings") is False
+
+
+def test_ydl_opts_quiet_default():
+    # Default (and --quiet) keeps the silent behavior.
+    opts = Downloader("/o", "c")._build_ydl_opts(lambda d: None)
+    assert opts.get("quiet") is True
+    assert opts.get("no_warnings") is True
+
+
+def test_ydl_opts_template_override():
+    opts = Downloader("/o", "c", template="%(title)s.%(ext)s")._build_ydl_opts(
+        lambda d: None
+    )
+    assert opts["outtmpl"] == "%(title)s.%(ext)s"

@@ -8,14 +8,15 @@ region-blocked) are marked so they are not retried indefinitely.
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Any, Callable, Dict, List, Optional
 
 import yt_dlp
 from yt_dlp.utils import DownloadError
 
-from .manifest import Manifest
-from .utils.organize import build_channel_dir, output_template
+from .manifest import BaseManifest
+from .utils.organize import build_channel_dir, output_template, safe_output_path
 from .utils.rate_limit import RateLimiter
 
 # Substrings (lowercased) that indicate a failure we should NOT retry.
@@ -103,6 +104,9 @@ class Downloader:
         before: Optional[str] = None,
         proxy: Optional[str] = None,
         cookies_from_browser: Optional[str] = None,
+        quiet: bool = False,
+        verbose: bool = False,
+        template: Optional[str] = None,
     ):
         if cookies and cookies_from_browser:
             raise ValueError(
@@ -122,6 +126,9 @@ class Downloader:
         self.before = before
         self.proxy = proxy
         self.cookies_from_browser = cookies_from_browser
+        self.quiet = quiet
+        self.verbose = verbose
+        self.template = template
         self.channel_dir = build_channel_dir(output_dir, target_key)
 
     # --- format selection --------------------------------------------------
@@ -151,14 +158,20 @@ class Downloader:
     # --- yt-dlp option construction ---------------------------------------
     def _build_ydl_opts(self, progress_hook: Callable[[Dict[str, Any]], None]) -> Any:
         opts: Any = {
-            "outtmpl": output_template(self.channel_dir),
-            "quiet": True,
-            "no_warnings": True,
+            "outtmpl": self.template or output_template(self.channel_dir),
             "ignoreerrors": False,
             "noplaylist": True,
             "windowsfilenames": True,  # safe on all platforms; required on Windows
             "progress_hooks": [progress_hook],
         }
+        if self.verbose:
+            # Surface yt-dlp warnings/debug output.
+            opts["verbose"] = True
+            opts["no_warnings"] = False
+        else:
+            # Default (and --quiet): silent operation.
+            opts["quiet"] = True
+            opts["no_warnings"] = True
         fmt = self.format_selector()
         if fmt is not None:
             opts["format"] = fmt
@@ -198,7 +211,7 @@ class Downloader:
     def download(
         self,
         video: Dict[str, Any],
-        manifest: Manifest,
+        manifest: BaseManifest,
         reporter: Optional[DownloadReporter] = None,
     ) -> Dict[str, Any]:
         reporter = reporter or DownloadReporter()
@@ -252,6 +265,22 @@ class Downloader:
                         or (info.get("filepath") if isinstance(info, dict) else None)
                         or self.channel_dir
                     )
+                # Windows path-length guard: if the resolved path exceeds the
+                # legacy MAX_PATH limit, rename to a truncated, collision-safe
+                # path. Non-Windows is unaffected.
+                if os.name == "nt" and len(path) > 259:
+                    ext = os.path.splitext(path)[1] or ""
+                    safe = safe_output_path(
+                        self.channel_dir,
+                        info.get("upload_date") if isinstance(info, dict) else None,
+                        info.get("title", video_id) if isinstance(info, dict) else video_id,
+                        ext,
+                    )
+                    try:
+                        os.rename(path, safe)
+                        path = safe
+                    except OSError:
+                        pass
                 manifest.mark_complete(video_id, path)
                 reporter.video_finish()
                 return {

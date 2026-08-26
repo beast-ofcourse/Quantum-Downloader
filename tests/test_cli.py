@@ -3,7 +3,9 @@
 from typer.testing import CliRunner
 
 from ytchannel import cli as cli_mod
-from ytchannel.cli import _manifest_path, _storage_key, app
+from ytchannel.cli import app
+from ytchannel.storage import manifest_path as _manifest_path
+from ytchannel.storage import storage_key as _storage_key
 
 
 def test_storage_key_combines_type_and_id():
