@@ -1,19 +1,23 @@
+<div align="center">
+
 # Quantum-Downloader
 
 ![Quantum-Downloader](assets/Q-downloader.png)
 
 ### Resumable, idempotent YouTube channel archiving from the command line.
 
+[![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Built with yt-dlp](https://img.shields.io/badge/built%20with-yt--dlp-red.svg)](https://github.com/yt-dlp/yt-dlp)
+[![Tests](https://img.shields.io/badge/tests-55%20passing-brightgreen.svg)](#development)
+
+</div>
+
 **Quantum-Downloader** (Python package: `ytchannel`) downloads an *entire* YouTube
 channel to local storage — every video, organized, resumable, and safe to re-run.
 It is a thin orchestration layer over [`yt-dlp`](https://github.com/yt-dlp/yt-dlp),
 adding channel-level planning, a manifest of download state, polite rate
 limiting, and a clean CLI.
-
-[![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Built with yt-dlp](https://img.shields.io/badge/built%20with-yt--dlp-red.svg)](https://github.com/yt-dlp/yt-dlp)
-[![Tests](https://img.shields.io/badge/tests-55%20passing-brightgreen.svg)](#development)
 
 ---
 
