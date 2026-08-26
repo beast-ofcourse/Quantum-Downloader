@@ -11,9 +11,26 @@ limiting, and a clean CLI.
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Built with yt-dlp](https://img.shields.io/badge/built%20with-yt--dlp-red.svg)](https://github.com/yt-dlp/yt-dlp)
-[![Tests](https://img.shields.io/badge/tests-53%20passing-brightgreen.svg)](#development)
+[![Tests](https://img.shields.io/badge/tests-55%20passing-brightgreen.svg)](#development)
 
 ---
+
+## Table of Contents
+
+- [Why Quantum-Downloader?](#why-quantum-downloader)
+- [Quickstart](#quickstart)
+- [Features](#features)
+- [How it works](#how-it-works)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Output structure](#output-structure)
+- [Configuration](#configuration)
+- [Resilience & rate limiting](#resilience--rate-limiting)
+- [Limitations](#limitations)
+- [Roadmap](#roadmap)
+- [Development](#development)
+- [License](#license)
 
 > **Scope & legal disclaimer.** This tool is for archiving content you have the
 > right to download — your own channel, Creative Commons / public-domain material,
@@ -36,6 +53,27 @@ reliably is not:
 
 Quantum-Downloader wraps all of that into one repeatable command: **plan →
 download → resume → report.**
+
+## Quickstart
+
+Install (pick one):
+
+```bash
+pip install quantum-downloader          # Python 3.9+ (recommended)
+# or grab ytchannel.exe from GitHub Releases (needs ffmpeg on PATH)
+# or: docker build -t quantum-downloader .   # ffmpeg baked in
+```
+
+Archive a channel:
+
+```bash
+ytchannel index "https://www.youtube.com/@Fireship" -o fireship.json
+ytchannel download "https://www.youtube.com/@Fireship" --limit 5
+```
+
+Re-run without `--limit` to grab the whole channel, or add `--playlist` to a playlist
+URL to archive a playlist instead. Completed videos are always skipped, so it's safe
+to re-run anytime.
 
 ## Live demo
 
@@ -115,19 +153,34 @@ re-downloads.
 
 ## Installation
 
-From a clone of this repository:
+### PyPI (recommended)
+Requires Python 3.9+.
 
+```bash
+pip install quantum-downloader
+ytchannel --version
+```
+
+### Docker
+`ffmpeg` is baked into the image, so there is no system dependency to install.
+
+```bash
+docker build -t quantum-downloader .
+docker run --rm -v "$PWD:/data" quantum-downloader \
+  ytchannel download "https://www.youtube.com/@Fireship" -o /data
+```
+
+### Windows (standalone executable)
+Download `ytchannel.exe` from the
+[GitHub Releases](https://github.com/beast-ofcourse/Quantum-Downloader/releases) page.
+It requires [`ffmpeg`](https://ffmpeg.org/) on your `PATH`.
+
+### From source
 ```bash
 git clone https://github.com/beast-ofcourse/Quantum-Downloader.git
 cd Quantum-Downloader
 pip install -e .
 ytchannel --version
-```
-
-Or from a built wheel:
-
-```bash
-pip install dist/ytchannel-1.0.0-py3-none-any.whl
 ```
 
 ## Usage
@@ -217,7 +270,7 @@ Precedence: **CLI flags > config file > built-in defaults**.
 
 ```bash
 pip install -e ".[dev]"
-pytest            # run the test suite (53 tests)
+pytest            # run the test suite (55 tests)
 ruff check ytchannel   # lint
 ```
 
