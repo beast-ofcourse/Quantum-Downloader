@@ -90,7 +90,7 @@ class Downloader:
     def __init__(
         self,
         output_dir: str,
-        channel_name: str,
+        target_key: str,
         quality: str = "best",
         audio_only: bool = False,
         write_thumbnail: bool = False,
@@ -101,7 +101,7 @@ class Downloader:
         max_retries: int = 3,
     ):
         self.output_dir = output_dir
-        self.channel_name = channel_name
+        self.target_key = target_key
         self.quality = quality
         self.audio_only = audio_only
         self.write_thumbnail = write_thumbnail
@@ -110,7 +110,7 @@ class Downloader:
         self.cookies = cookies
         self.rate_limiter = rate_limiter or RateLimiter()
         self.max_retries = max(1, max_retries)
-        self.channel_dir = build_channel_dir(output_dir, channel_name)
+        self.channel_dir = build_channel_dir(output_dir, target_key)
 
     # --- format selection --------------------------------------------------
     def format_selector(self) -> Optional[str]:

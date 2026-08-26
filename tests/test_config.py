@@ -1,6 +1,5 @@
 """Tests for configuration loading and CLI > config > default precedence."""
 
-import os
 import textwrap
 
 from ytchannel.config import Config
