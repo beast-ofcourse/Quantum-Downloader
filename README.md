@@ -165,12 +165,15 @@ Downloads (filtered) videos from a channel (or playlist, with `--playlist`).
 ## Output structure
 
 ```
-<output_dir>/<target_name>/<upload_date>_<video_title>.<ext>
+<output_dir>/<target_type>_<target_id>/<upload_date>_<video_title>.<ext>
 ```
 
-`target_name` is the resolved channel or playlist name. State lives in
-`<target_name>.manifest.json` next to the output directory — each channel and each
-playlist gets its own folder and manifest, so they never collide.
+The on-disk identity is the **stable storage key** `<target_type>_<target_id>`
+(e.g. `channel_UCxxxx` or `playlist_PLxxxx`), *not* the display title — so if a
+channel or playlist renames itself, your manifest and downloads stay linked and
+resume correctly. `target_name` is used only for display. State lives in
+`<target_type>_<target_id>.manifest.json` next to the output directory — each
+channel and each playlist gets its own folder and manifest, so they never collide.
 
 ## Configuration
 

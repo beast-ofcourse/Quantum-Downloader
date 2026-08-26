@@ -144,9 +144,24 @@ def _fail(message: str, code: int = 1) -> "typer.Exit":
     return typer.Exit(code=code)
 
 
-def _manifest_path(output_dir: str, target_name: str) -> str:
-    """Path to the manifest file for a given target (channel or playlist)."""
-    return str(Path(output_dir) / (sanitize_segment(target_name) + ".manifest.json"))
+def _storage_key(result: Dict[str, Any]) -> str:
+    """Stable on-disk identity for a target: type + id.
+
+    Uses the immutable YouTube id, not the display title, so a channel or
+    playlist renaming itself does not orphan the manifest or download folder.
+    """
+    ttype = result.get("target_type", "target")
+    tid = result.get("target_id") or result.get("target_name") or "unknown"
+    return f"{ttype}_{tid}"
+
+
+def _manifest_path(output_dir: str, key: str) -> str:
+    """Path to the manifest file for a given target (channel or playlist).
+
+    Keyed by the stable storage key (target_type + target_id), not the display
+    name, so title renames don't break resume/idempotency.
+    """
+    return str(Path(output_dir) / (sanitize_segment(key) + ".manifest.json"))
 
 
 @app.command()
@@ -161,8 +176,8 @@ def index(
             result = resolve_playlist(url, quiet=True)
         else:
             result = resolve_channel(url, quiet=True)
-    except ResolutionError as e:
-        raise _fail(str(e))
+    except (ResolutionError, ValueError) as e:
+        raise _fail(str(e)) from e
 
     if output.endswith(".csv"):
         export_csv(result, output)
@@ -216,11 +231,12 @@ def download(
             result = resolve_playlist(url, quiet=True)
         else:
             result = resolve_channel(url, quiet=True)
-    except ResolutionError as e:
-        raise _fail(str(e))
+    except (ResolutionError, ValueError) as e:
+        raise _fail(str(e)) from e
 
     target_name = result.get("target_name") or result.get("channel_name") or "target"
     target_type = result.get("target_type", "channel")
+    storage_key = _storage_key(result)
     videos = result["videos"]
 
     # Apply filters at the reconciliation step (Phase 4).
@@ -246,7 +262,7 @@ def download(
         )
         return
 
-    manifest_path = _manifest_path(cfg.output_dir, target_name)
+    manifest_path = _manifest_path(cfg.output_dir, storage_key)
     try:
         manifest = Manifest(manifest_path)
     except ManifestError as e:
@@ -271,7 +287,7 @@ def download(
 
     downloader = Downloader(
         output_dir=cfg.output_dir,
-        target_name=target_name,
+        target_key=storage_key,
         quality=cfg.quality,
         audio_only=cfg.audio_only,
         write_thumbnail=cfg.write_thumbnail,

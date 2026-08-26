@@ -23,8 +23,8 @@ def test_format_selector_quality_and_audio():
     assert Downloader("/o", "c", audio_only=True).format_selector() == "bestaudio/best"
 
 
-def test_downloader_uses_target_name_for_dir():
-    # The second positional arg is the target name (channel or playlist).
+def test_downloader_uses_target_key_for_dir():
+    # The second positional arg is the stable storage key (channel/playlist id).
     d = Downloader("/o", "CoolPlaylist")
     assert "CoolPlaylist" in d.channel_dir
 
