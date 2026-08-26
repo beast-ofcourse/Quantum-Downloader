@@ -29,6 +29,9 @@ CONFIG_KEYS = (
     "limit",
     "after",
     "before",
+    "max_retries",
+    "proxy",
+    "cookies_from_browser",
 )
 
 
@@ -45,6 +48,9 @@ class Config:
     limit: Optional[int] = None
     after: Optional[str] = None
     before: Optional[str] = None
+    max_retries: int = 3
+    proxy: Optional[str] = None
+    cookies_from_browser: Optional[str] = None
 
     @classmethod
     def from_file(cls, path: str = DEFAULT_CONFIG_PATH) -> "Config":
@@ -78,6 +84,8 @@ class Config:
                 elif key == "delay":
                     value = float(value)
                 elif key == "limit":
+                    value = int(value)
+                elif key == "max_retries":
                     value = int(value)
                 setattr(cfg, key, value)
         return cfg

@@ -29,7 +29,17 @@ import tempfile
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from .utils.organize import build_channel_dir
+
 VALID_STATUS = {"pending", "downloading", "complete", "failed"}
+
+# Media extensions we treat as downloadable content. Sidecar files (thumbnails,
+# .description, .json metadata, etc.) are deliberately excluded so they are not
+# mistaken for orphaned media during verification.
+MEDIA_EXTENSIONS = {
+    ".mp4", ".mkv", ".webm", ".mov", ".avi",
+    ".mp3", ".m4a", ".ogg", ".wav", ".flac", ".aac", ".opus",
+}
 
 
 class ManifestError(Exception):
@@ -160,3 +170,51 @@ class Manifest:
 
     def get_failed(self) -> List[str]:
         return [vid for vid, e in self.entries.items() if e.get("status") == "failed"]
+
+    # --- verification ------------------------------------------------------
+    def check_files(self, output_dir: str) -> Dict[str, Any]:
+        """Verify which 'complete' entries still have their files on disk.
+
+        Returns a report with three buckets:
+          - complete_present: complete entries whose file exists
+          - complete_missing: complete entries whose file is gone
+          - orphan_on_disk: media files on disk not referenced by any entry
+        """
+        channel_dir = build_channel_dir(output_dir, self.channel_name)
+        referenced = {
+            os.path.basename(e["file_path"])
+            for e in self.entries.values()
+            if e.get("file_path")
+        }
+
+        complete_present: List[Dict[str, Any]] = []
+        complete_missing: List[Dict[str, Any]] = []
+        for entry in self.entries.values():
+            if entry.get("status") != "complete" or not entry.get("file_path"):
+                continue
+            p = entry["file_path"]
+            resolved = p
+            if not os.path.isabs(p):
+                candidate = os.path.join(output_dir, p)
+                if os.path.exists(candidate):
+                    resolved = candidate
+            if os.path.exists(resolved):
+                complete_present.append(entry)
+            else:
+                complete_missing.append(entry)
+
+        orphan_on_disk: List[str] = []
+        if os.path.isdir(channel_dir):
+            for root, _dirs, files in os.walk(channel_dir):
+                for f in files:
+                    if os.path.splitext(f)[1].lower() not in MEDIA_EXTENSIONS:
+                        continue
+                    if f in referenced:
+                        continue
+                    orphan_on_disk.append(os.path.abspath(os.path.join(root, f)))
+
+        return {
+            "complete_present": complete_present,
+            "complete_missing": complete_missing,
+            "orphan_on_disk": orphan_on_disk,
+        }

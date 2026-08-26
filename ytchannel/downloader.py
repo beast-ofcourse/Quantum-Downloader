@@ -99,7 +99,15 @@ class Downloader:
         cookies: Optional[str] = None,
         rate_limiter: Optional[RateLimiter] = None,
         max_retries: int = 3,
+        after: Optional[str] = None,
+        before: Optional[str] = None,
+        proxy: Optional[str] = None,
+        cookies_from_browser: Optional[str] = None,
     ):
+        if cookies and cookies_from_browser:
+            raise ValueError(
+                "Cannot use both a cookies file and --cookies-from-browser."
+            )
         self.output_dir = output_dir
         self.target_key = target_key
         self.quality = quality
@@ -110,6 +118,10 @@ class Downloader:
         self.cookies = cookies
         self.rate_limiter = rate_limiter or RateLimiter()
         self.max_retries = max(1, max_retries)
+        self.after = after
+        self.before = before
+        self.proxy = proxy
+        self.cookies_from_browser = cookies_from_browser
         self.channel_dir = build_channel_dir(output_dir, target_key)
 
     # --- format selection --------------------------------------------------
@@ -152,6 +164,14 @@ class Downloader:
             opts["format"] = fmt
         if self.cookies:
             opts["cookiefile"] = self.cookies
+        if self.after:
+            opts["dateafter"] = self.after
+        if self.before:
+            opts["datebefore"] = self.before
+        if self.proxy:
+            opts["proxy"] = self.proxy
+        if self.cookies_from_browser:
+            opts["cookiesfrombrowser"] = [self.cookies_from_browser]
 
         postprocessors: List[Dict[str, Any]] = []
         if self.audio_only:

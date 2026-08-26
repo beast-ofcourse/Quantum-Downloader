@@ -1,0 +1,155 @@
+"""Download execution and progress reporting.
+
+This module holds the side-effecting parts of the download orchestration that
+used to live in ``cli.py``: the rich progress reporter and the
+:func:`run_archiver` driver that loops over a :class:`~ytchannel.planner.DownloadPlan`,
+applying rate limiting and recording outcomes.
+
+The orchestration here is behavior-preserving: it mirrors the original
+``cli.download`` loop exactly (same console messages, same KeyboardInterrupt
+handling, same summary shape).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
+
+import typer
+from rich.console import Console
+from rich.progress import (
+    BarColumn,
+    DownloadColumn,
+    Progress,
+    TextColumn,
+    TimeRemainingColumn,
+    TransferSpeedColumn,
+)
+
+from .config import Config
+from .downloader import Downloader, DownloadReporter
+from .manifest import Manifest
+from .planner import DownloadPlan
+from .utils.rate_limit import RateLimiter
+
+
+class RichReporter(DownloadReporter):
+    """Rich-based progress reporter: overall count + per-video download bar."""
+
+    def __init__(self, total: int) -> None:
+        self.progress = Progress(
+            TextColumn("[bold cyan]{task.description}"),
+            BarColumn(),
+            DownloadColumn(),
+            TransferSpeedColumn(),
+            TimeRemainingColumn(),
+        )
+        self.overall = self.progress.add_task("[green]Overall", total=total)
+        self.video_task = self.progress.add_task("Video", total=None, visible=False)
+        self.progress.start()
+
+    def video_start(self, title: str) -> None:
+        self.progress.update(
+            self.video_task,
+            description=(title[:50] + ("…" if len(title) > 50 else "")),
+            completed=0,
+            total=None,
+            visible=True,
+        )
+
+    def video_progress(self, data: Dict[str, Any]) -> None:
+        if data.get("status") == "downloading":
+            total = data.get("total_bytes") or data.get("total_bytes_estimate")
+            downloaded = data.get("downloaded_bytes", 0)
+            if total:
+                self.progress.update(self.video_task, completed=downloaded, total=total)
+            else:
+                self.progress.update(self.video_task, completed=downloaded)
+        elif data.get("status") == "finished":
+            self.progress.update(self.video_task, visible=False)
+
+    def video_finish(self) -> None:
+        self.progress.update(self.video_task, visible=False)
+        self.progress.advance(self.overall, 1)
+
+    def stop(self) -> None:
+        self.progress.stop()
+
+
+@dataclass
+class Summary:
+    downloaded: int
+    already_complete: int
+    failed: int
+    failed_reasons: List[str]
+
+
+def run_archiver(
+    config: Config,
+    manifest: Manifest,
+    plan: DownloadPlan,
+    target_key: str,
+    downloader_cls: type = Downloader,
+    console: Optional[Console] = None,
+) -> Summary:
+    """Execute the downloads described by ``plan`` and return a summary.
+
+    ``downloader_cls`` defaults to :class:`~ytchannel.downloader.Downloader`
+    but is injectable so callers (and tests) can substitute a fake. The
+    ``already_complete`` count comes from ``plan`` (computed before any
+    download), never from the post-loop state.
+    """
+    console = console or Console()
+
+    if not plan.pending:
+        console.print("[green]All videos already downloaded. Nothing to do.[/]")
+        return Summary(0, plan.already_complete, 0, [])
+
+    console.print(
+        f"[bold]Downloading[/] {len(plan.pending)} video(s) to "
+        f"[bold]{config.output_dir}[/]"
+    )
+
+    downloader = downloader_cls(
+        output_dir=config.output_dir,
+        target_key=target_key,
+        quality=config.quality,
+        audio_only=config.audio_only,
+        write_thumbnail=config.write_thumbnail,
+        write_description=config.write_description,
+        write_subs=config.write_subs,
+        cookies=config.cookies,
+        max_retries=config.max_retries,
+        after=config.after,
+        before=config.before,
+        proxy=config.proxy,
+        cookies_from_browser=config.cookies_from_browser,
+    )
+
+    reporter = RichReporter(total=len(plan.pending))
+    rate_limiter = RateLimiter(base_delay=config.delay)
+    downloaded = failed = 0
+    failed_reasons: List[str] = []
+
+    try:
+        for idx, vid in enumerate(plan.pending):
+            entry = manifest.entries[vid]
+            # Delay between videos (not before the very first one).
+            if idx > 0:
+                rate_limiter.delay()
+            outcome = downloader.download(entry, manifest, reporter=reporter)
+            if outcome["status"] == "complete":
+                downloaded += 1
+            else:
+                failed += 1
+                reason = outcome.get("error", "unknown error")
+                failed_reasons.append(f"{entry.get('title', vid)}: {reason}")
+    except KeyboardInterrupt:
+        reporter.stop()
+        manifest.save()
+        console.print("\n[yellow]Interrupted.[/] Manifest saved; re-run to resume.")
+        raise typer.Exit(code=130)
+
+    reporter.stop()
+
+    return Summary(downloaded, plan.already_complete, failed, failed_reasons)

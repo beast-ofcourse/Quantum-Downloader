@@ -44,3 +44,15 @@ def test_merge_cli_overrides_only_set_values(tmp_path, monkeypatch):
     assert cfg.audio_only is True      # CLI override applied
     assert cfg.delay == 2.0            # None -> not overridden, default kept
     assert cfg.output_dir == "./downloads"
+
+
+def test_max_retries_default_and_merge(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    cfg = Config.from_file(str(tmp_path / "x.toml"))
+    assert "max_retries" in Config.__dataclass_fields__
+    assert cfg.max_retries == 3
+    cfg.merge_cli({"max_retries": 7})
+    assert cfg.max_retries == 7
+    # None must not override an explicit value (CLI flags default to None).
+    cfg.merge_cli({"max_retries": None})
+    assert cfg.max_retries == 7  # None -> default preserved

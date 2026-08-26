@@ -71,3 +71,52 @@ def test_load_corrupt_manifest_raises(tmp_path):
         assert False, "expected ManifestError"
     except ManifestError:
         pass
+
+
+def test_check_files_present_missing_orphan(tmp_path):
+    import os
+    from pathlib import Path
+
+    from ytchannel.utils.organize import build_channel_dir
+
+    channel_dir = build_channel_dir(str(tmp_path), "TestChan")
+    os.makedirs(channel_dir)
+
+    manifest = Manifest(str(tmp_path / "channel_TC.manifest.json"))
+    manifest.channel_name = "TestChan"
+
+    # v0: complete, file present on disk.
+    present_path = str(Path(channel_dir) / "present.mp4")
+    Path(present_path).write_text("x", encoding="utf-8")
+    manifest.entries["v0"] = {
+        "video_id": "v0", "title": "V0", "status": "complete",
+        "file_path": present_path, "downloaded_at": None,
+        "attempts": 0, "last_error": None, "permanent": False,
+    }
+    # v1: complete, file missing.
+    manifest.entries["v1"] = {
+        "video_id": "v1", "title": "V1", "status": "complete",
+        "file_path": str(Path(channel_dir) / "gone.mp4"), "downloaded_at": None,
+        "attempts": 0, "last_error": None, "permanent": False,
+    }
+    # v2: pending, no file_path.
+    manifest.entries["v2"] = {
+        "video_id": "v2", "title": "V2", "status": "pending",
+        "file_path": None, "downloaded_at": None,
+        "attempts": 0, "last_error": None, "permanent": False,
+    }
+
+    # Orphan media file (not referenced by any entry).
+    orphan_path = str(Path(channel_dir) / "orphan.mkv")
+    Path(orphan_path).write_text("x", encoding="utf-8")
+    # Non-media sidecar must NOT be counted as an orphan.
+    Path(channel_dir, "notes.txt").write_text("x", encoding="utf-8")
+
+    report = manifest.check_files(str(tmp_path))
+
+    assert len(report["complete_present"]) == 1
+    assert report["complete_present"][0]["video_id"] == "v0"
+    assert len(report["complete_missing"]) == 1
+    assert report["complete_missing"][0]["video_id"] == "v1"
+    assert any(p.endswith("orphan.mkv") for p in report["orphan_on_disk"])
+    assert not any(p.endswith(".txt") for p in report["orphan_on_disk"])

@@ -91,3 +91,28 @@ def test_download_transient_retries_then_fails(tmp_path):
     assert outcome.get("permanent") is False
     assert "v1" in m.get_pending()  # eligible for retry on next run
     assert m.entries["v1"]["attempts"] == 1
+
+
+def test_ydl_opts_date_filter():
+    d = Downloader("/o", "c", after="20240101", before="20241231")
+    opts = d._build_ydl_opts(lambda data: None)
+    assert opts.get("dateafter") == "20240101" and opts.get("datebefore") == "20241231"
+
+
+def test_ydl_opts_proxy():
+    d = Downloader("/o", "c", proxy="http://h:1")
+    opts = d._build_ydl_opts(lambda data: None)
+    assert opts.get("proxy") == "http://h:1"
+
+
+def test_ydl_opts_cookies_from_browser():
+    d = Downloader("/o", "c", cookies_from_browser="chrome")
+    opts = d._build_ydl_opts(lambda data: None)
+    assert opts.get("cookiesfrombrowser") == ["chrome"]
+
+
+def test_cookies_and_browser_conflict():
+    import pytest
+
+    with pytest.raises(ValueError):
+        Downloader("/o", "c", cookies="x.txt", cookies_from_browser="chrome")
