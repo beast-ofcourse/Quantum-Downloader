@@ -3,17 +3,31 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ytchannel"
+name = "quantum-downloader"
 version = "1.0.0"
-description = "Download and archive entire YouTube channels with resumable, idempotent downloads."
+description = "Download and archive entire YouTube channels and playlists with resumable, idempotent downloads."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
-keywords = ["youtube", "yt-dlp", "archiver", "downloader", "channel"]
+authors = [{ name = "beast-ofcourse" }]
+keywords = ["youtube", "yt-dlp", "archiver", "downloader", "channel", "playlist"]
 dependencies = [
     "yt-dlp>=2024.1.0",
     "typer>=0.9.0",
     "rich>=13.0.0",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: WWW/HTTP",
 ]
 
 [project.scripts]
@@ -23,7 +37,9 @@ ytchannel = "ytchannel.cli:main"
 dev = ["pytest>=7.0", "ruff>=0.1", "mypy>=1.0"]
 
 [project.urls]
-Homepage = "https://github.com/example/ytchannel"
+Homepage = "https://github.com/beast-ofcourse/Quantum-Downloader"
+Repository = "https://github.com/beast-ofcourse/Quantum-Downloader"
+Issues = "https://github.com/beast-ofcourse/Quantum-Downloader/issues"
 
 [tool.setuptools.packages.find]
 include = ["ytchannel*"]
