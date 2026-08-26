@@ -1,5 +1,7 @@
 # Quantum-Downloader
 
+![Quantum-Downloader](assets/Q-downloader.png)
+
 ### Resumable, idempotent YouTube channel archiving from the command line.
 
 **Quantum-Downloader** (Python package: `ytchannel`) downloads an *entire* YouTube
