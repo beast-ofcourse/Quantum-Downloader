@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ytchannel"
+version = "1.0.0"
+description = "Download and archive entire YouTube channels with resumable, idempotent downloads."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+keywords = ["youtube", "yt-dlp", "archiver", "downloader", "channel"]
+dependencies = [
+    "yt-dlp>=2024.1.0",
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+]
+
+[project.scripts]
+ytchannel = "ytchannel.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "ruff>=0.1", "mypy>=1.0"]
+
+[project.urls]
+Homepage = "https://github.com/example/ytchannel"
+
+[tool.setuptools.packages.find]
+include = ["ytchannel*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.9"
+ignore_missing_imports = true
