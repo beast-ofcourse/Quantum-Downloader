@@ -3,7 +3,7 @@
 import csv
 import json
 
-from ytchannel.indexer import dry_run_summary, export_csv, export_json
+from ytchannel.indexer import dry_run_summary, export_csv, export_json, export_jsonl
 
 SAMPLE = {
     "channel_name": "TestChan",
@@ -47,3 +47,13 @@ def test_dry_run_summary_handles_missing_dates():
     s = dry_run_summary(no_dates)
     assert s["date_range"] is None
     assert s["count"] == 1
+
+
+def test_export_jsonl(tmp_path):
+    out = tmp_path / "c.jsonl"
+    export_jsonl(SAMPLE, str(out))
+    lines = out.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2
+    parsed = [json.loads(line) for line in lines]
+    assert parsed[0] == SAMPLE["videos"][0]
+    assert parsed[1] == SAMPLE["videos"][1]

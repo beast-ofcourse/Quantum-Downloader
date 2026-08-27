@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quantum-downloader"
-version = "1.0.0"
+dynamic = ["version"]
 description = "Download and archive entire YouTube channels and playlists with resumable, idempotent downloads."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -35,6 +35,7 @@ ytchannel = "ytchannel.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0", "ruff>=0.1", "mypy>=1.0"]
+web = ["fastapi>=0.110", "uvicorn[standard]>=0.27", "httpx>=0.27"]
 
 [project.urls]
 Homepage = "https://github.com/beast-ofcourse/Quantum-Downloader"
@@ -43,6 +44,12 @@ Issues = "https://github.com/beast-ofcourse/Quantum-Downloader/issues"
 
 [tool.setuptools.packages.find]
 include = ["ytchannel*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "ytchannel.__version__"}
+
+[tool.setuptools.package-data]
+ytchannel = ["web/static/**", "web/static/*"]
 
 [tool.ruff]
 line-length = 100
@@ -53,5 +60,5 @@ select = ["E", "F", "W", "I"]
 ignore = ["E501"]
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 ignore_missing_imports = true

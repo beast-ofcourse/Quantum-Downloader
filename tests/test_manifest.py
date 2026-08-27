@@ -71,3 +71,109 @@ def test_load_corrupt_manifest_raises(tmp_path):
         assert False, "expected ManifestError"
     except ManifestError:
         pass
+
+
+def test_check_files_present_missing_orphan(tmp_path):
+    import os
+    from pathlib import Path
+
+    from ytchannel.utils.organize import build_channel_dir
+
+    channel_dir = build_channel_dir(str(tmp_path), "TestChan")
+    os.makedirs(channel_dir)
+
+    manifest = Manifest(str(tmp_path / "channel_TC.manifest.json"))
+    manifest.channel_name = "TestChan"
+
+    # v0: complete, file present on disk.
+    present_path = str(Path(channel_dir) / "present.mp4")
+    Path(present_path).write_text("x", encoding="utf-8")
+    manifest.entries["v0"] = {
+        "video_id": "v0", "title": "V0", "status": "complete",
+        "file_path": present_path, "downloaded_at": None,
+        "attempts": 0, "last_error": None, "permanent": False,
+    }
+    # v1: complete, file missing.
+    manifest.entries["v1"] = {
+        "video_id": "v1", "title": "V1", "status": "complete",
+        "file_path": str(Path(channel_dir) / "gone.mp4"), "downloaded_at": None,
+        "attempts": 0, "last_error": None, "permanent": False,
+    }
+    # v2: pending, no file_path.
+    manifest.entries["v2"] = {
+        "video_id": "v2", "title": "V2", "status": "pending",
+        "file_path": None, "downloaded_at": None,
+        "attempts": 0, "last_error": None, "permanent": False,
+    }
+
+    # Orphan media file (not referenced by any entry).
+    orphan_path = str(Path(channel_dir) / "orphan.mkv")
+    Path(orphan_path).write_text("x", encoding="utf-8")
+    # Non-media sidecar must NOT be counted as an orphan.
+    Path(channel_dir, "notes.txt").write_text("x", encoding="utf-8")
+
+    report = manifest.check_files(str(tmp_path))
+
+    assert len(report["complete_present"]) == 1
+    assert report["complete_present"][0]["video_id"] == "v0"
+    assert len(report["complete_missing"]) == 1
+    assert report["complete_missing"][0]["video_id"] == "v1"
+    assert any(p.endswith("orphan.mkv") for p in report["orphan_on_disk"])
+    assert not any(p.endswith(".txt") for p in report["orphan_on_disk"])
+
+
+def test_manifest_backends_roundtrip(tmp_path):
+    """Both JSON and SQLite backends must behave identically and persist."""
+    for backend in ("json", "sqlite"):
+        path = str(tmp_path / f"{backend}.manifest.json")
+        m = Manifest.open(path, backend=backend)
+        m.channel_name = "Chan"
+        m.reconcile(
+            [{"video_id": "v0", "title": "A"}, {"video_id": "v1", "title": "B"}],
+            "Chan",
+        )
+        m.mark_downloading("v0")
+        m.mark_complete("v0", "/tmp/a.mp4")
+        m.mark_failed("v1", "boom", permanent=True)
+
+        assert m.is_complete("v0") is True
+        assert m.get_pending() == []  # v0 complete, v1 permanent-failed excluded
+        assert m.get_failed() == ["v1"]
+
+        # Re-open the same path with the same backend; state must persist.
+        m2 = Manifest.open(path, backend=backend)
+        assert m2.is_complete("v0") is True
+        assert "v0" in m2.entries
+        assert m2.entries["v0"]["title"] == "A"
+        assert m2.entries["v1"]["title"] == "B"
+
+
+def test_manifest_sqlite_migration(tmp_path):
+    """A JSON manifest is migrated into SQLite non-destructively."""
+    json_path = tmp_path / "c.manifest.json"
+    json_path.write_text(
+        json.dumps(
+            {
+                "channel_name": "C",
+                "videos": {
+                    "v0": {
+                        "video_id": "v0",
+                        "title": "A",
+                        "status": "complete",
+                        "file_path": "/x",
+                        "downloaded_at": None,
+                        "attempts": 1,
+                        "last_error": None,
+                        "permanent": False,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    m = Manifest.open(str(json_path), backend="sqlite")
+    assert m.is_complete("v0") is True
+    assert m.entries["v0"]["title"] == "A"
+    # Original JSON file left in place (non-destructive).
+    assert json_path.exists()

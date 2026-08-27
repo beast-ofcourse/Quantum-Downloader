@@ -13,3 +13,7 @@ downloads/
 .mypy_cache/
 .ruff_cache/
 plan/
+
+sketches/
+.playwright-mcp/
+AGENTS.md

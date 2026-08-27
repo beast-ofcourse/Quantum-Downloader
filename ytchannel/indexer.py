@@ -30,6 +30,17 @@ def export_csv(result: Dict[str, Any], output_path: str) -> None:
             writer.writerow(v)
 
 
+def export_jsonl(result: Dict[str, Any], output_path: str) -> None:
+    """Write one JSON object per line, one per video in ``result['videos']``.
+
+    Each line is ``json.dumps(video, ensure_ascii=False)`` so the file is a
+    valid JSON Lines stream that can be streamed or parsed line by line.
+    """
+    with open(output_path, "w", encoding="utf-8") as f:
+        for video in result["videos"]:
+            f.write(json.dumps(video, ensure_ascii=False) + "\n")
+
+
 def dry_run_summary(result: Dict[str, Any]) -> Dict[str, Any]:
     """Compute a human-readable summary of what a download would entail.
 

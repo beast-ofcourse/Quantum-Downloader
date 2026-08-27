@@ -29,6 +29,15 @@ CONFIG_KEYS = (
     "limit",
     "after",
     "before",
+    "max_retries",
+    "proxy",
+    "cookies_from_browser",
+    "manifest_backend",
+    "concurrency",
+    "quiet",
+    "verbose",
+    "log_file",
+    "template",
 )
 
 
@@ -45,6 +54,15 @@ class Config:
     limit: Optional[int] = None
     after: Optional[str] = None
     before: Optional[str] = None
+    max_retries: int = 3
+    proxy: Optional[str] = None
+    cookies_from_browser: Optional[str] = None
+    manifest_backend: str = "auto"
+    concurrency: int = 1
+    quiet: bool = False
+    verbose: bool = False
+    log_file: Optional[str] = None
+    template: Optional[str] = None
 
     @classmethod
     def from_file(cls, path: str = DEFAULT_CONFIG_PATH) -> "Config":
@@ -73,11 +91,20 @@ class Config:
             if key in section:
                 value = section[key]
                 # Normalize types for known keys.
-                if key in ("audio_only", "write_thumbnail", "write_description", "write_subs"):
+                if key in (
+                    "audio_only",
+                    "write_thumbnail",
+                    "write_description",
+                    "write_subs",
+                    "quiet",
+                    "verbose",
+                ):
                     value = bool(value)
                 elif key == "delay":
                     value = float(value)
                 elif key == "limit":
+                    value = int(value)
+                elif key == "max_retries":
                     value = int(value)
                 setattr(cfg, key, value)
         return cfg
