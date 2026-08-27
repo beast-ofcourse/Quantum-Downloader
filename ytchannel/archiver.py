@@ -36,20 +36,6 @@ from .planner import DownloadPlan
 from .utils.rate_limit import RateLimiter
 
 
-def batch_eta(
-    completed: int, total: int, elapsed_seconds: float
-) -> Optional[float]:
-    """Estimated seconds remaining for the whole batch.
-
-    Returns None when no progress has been made yet (``completed == 0``) or the
-    batch is already finished (``total <= completed``); otherwise a linear
-    extrapolation: ``(elapsed / completed) * (total - completed)``.
-    """
-    if completed == 0 or total <= completed:
-        return None
-    return (elapsed_seconds / completed) * (total - completed)
-
-
 class RichReporter(DownloadReporter):
     """Rich-based progress reporter: overall count + per-video download bar."""
 
@@ -305,4 +291,9 @@ def run_archiver(
     _log(f"END downloaded={downloaded} failed={failed}")
     _close_log()
 
-    return Summary(downloaded, plan.already_complete, failed, failed_reasons)
+    # A worker that was cancelled before it started returns "skipped"; surface
+    # that as an interrupted run so the job status/cancellation is honest.
+    interrupted = any(o.get("status") == "skipped" for o in outcomes)
+    return Summary(
+        downloaded, plan.already_complete, failed, failed_reasons, interrupted=interrupted
+    )

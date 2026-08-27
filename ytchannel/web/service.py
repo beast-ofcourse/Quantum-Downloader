@@ -16,8 +16,9 @@ cancellable whether the server is a long-lived uvicorn process or a
 from __future__ import annotations
 
 import os
+import re
 import threading
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set
 
 from ..archiver import run_archiver
 from ..config import DEFAULT_CONFIG_PATH, Config
@@ -32,8 +33,11 @@ from .jobs import Job, JobStore
 from .reporter import WebReporter
 
 # Request option keys that map directly onto Config fields (via merge_cli).
+# NOTE: `playlist`, `template`, and `log_file` are deliberately excluded — they
+# are not Config fields (`playlist`) or are filesystem-write vectors (`template`,
+# `log_file`) that must never be client-controlled on the web API. `output_dir`
+# is always pinned to the server's own directory (see start_job).
 _OPTION_KEYS = (
-    "playlist",
     "quality",
     "audio_only",
     "limit",
@@ -50,9 +54,113 @@ _OPTION_KEYS = (
     "concurrency",
     "quiet",
     "verbose",
-    "template",
-    "log_file",
 )
+
+# Keys the web API is allowed to accept at all. Anything else (output_dir,
+# template, log_file, or unknown keys) is dropped before it reaches the engine.
+_WEB_SAFE_KEYS: Set[str] = {
+    "playlist",
+    "dry_run",
+    "quality",
+    "audio_only",
+    "limit",
+    "after",
+    "before",
+    "write_thumbnail",
+    "write_description",
+    "write_subs",
+    "cookies",
+    "delay",
+    "proxy",
+    "cookies_from_browser",
+    "manifest_backend",
+    "concurrency",
+    "quiet",
+    "verbose",
+}
+
+# Hard ceiling on concurrent worker jobs so a client cannot exhaust threads.
+MAX_CONCURRENT_JOBS = 8
+
+
+def validate_web_options(options: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate and coerce web API job options.
+
+    Drops any key not in :data:`_WEB_SAFE_KEYS` (so ``output_dir``, ``template``,
+    ``log_file`` and unknown keys can never reach the engine), coerces types, and
+    enforces ranges. Raises ``ValueError`` with a human-readable message on bad
+    input so the caller can return HTTP 400.
+    """
+    cleaned: Dict[str, Any] = {}
+    for key, value in options.items():
+        if key not in _WEB_SAFE_KEYS:
+            continue
+        cleaned[key] = value
+
+    if "concurrency" in cleaned:
+        try:
+            c = int(cleaned["concurrency"])
+        except (TypeError, ValueError):
+            raise ValueError("concurrency must be an integer")
+        if c < 1:
+            raise ValueError("concurrency must be >= 1")
+        cleaned["concurrency"] = min(c, 16)
+
+    if "limit" in cleaned and cleaned["limit"] is not None:
+        try:
+            lim = int(cleaned["limit"])
+        except (TypeError, ValueError):
+            raise ValueError("limit must be an integer")
+        if lim < 0:
+            raise ValueError("limit must be >= 0")
+        cleaned["limit"] = lim
+
+    if "delay" in cleaned and cleaned["delay"] is not None:
+        try:
+            d = float(cleaned["delay"])
+        except (TypeError, ValueError):
+            raise ValueError("delay must be a number")
+        if d < 0:
+            raise ValueError("delay must be >= 0")
+        cleaned["delay"] = d
+
+    if "manifest_backend" in cleaned and cleaned["manifest_backend"] not in (
+        "auto",
+        "json",
+        "sqlite",
+    ):
+        raise ValueError("manifest_backend must be one of: auto, json, sqlite")
+
+    for flag in (
+        "playlist",
+        "dry_run",
+        "audio_only",
+        "write_thumbnail",
+        "write_description",
+        "write_subs",
+        "quiet",
+        "verbose",
+    ):
+        if flag in cleaned:
+            cleaned[flag] = bool(cleaned[flag])
+
+    for text in (
+        "quality",
+        "cookies",
+        "proxy",
+        "cookies_from_browser",
+        "after",
+        "before",
+    ):
+        if text in cleaned and cleaned[text] is not None:
+            cleaned[text] = str(cleaned[text])
+
+    for date_key in ("after", "before"):
+        val = cleaned.get(date_key)
+        if val and not re.match(r"^\d{8}$", str(val)):
+            raise ValueError(f"{date_key} must be a date in YYYYMMDD format")
+
+    return cleaned
 
 
 class Service:
@@ -94,8 +202,10 @@ class Service:
         for key in _OPTION_KEYS:
             if key in options and options[key] is not None:
                 cli_opts[key] = options[key]
-        # The web service decides where files land (the server's output dir).
-        cli_opts["output_dir"] = options.get("output_dir") or self.output_dir
+        # The web service decides where files land. The client can never choose
+        # the output directory (a client-supplied path would be an arbitrary
+        # file-write primitive), so it is always pinned to the server's dir.
+        cli_opts["output_dir"] = self.output_dir
         cfg.merge_cli(cli_opts)
 
         # 2. Validate / resolve the URL.
@@ -216,6 +326,9 @@ class Service:
             if name.endswith(".manifest.json"):
                 path = os.path.join(output_dir, name)
                 key = name[: -len(".manifest.json")]
+            elif name.endswith(".manifest.sqlite"):
+                path = os.path.join(output_dir, name)
+                key = name[: -len(".manifest.sqlite")]
             elif name.endswith(".sqlite"):
                 path = os.path.join(output_dir, name)
                 key = name[: -len(".sqlite")]
@@ -225,7 +338,6 @@ class Service:
                 manifest = Manifest.open(path, backend="auto")
             except Exception:
                 continue
-            key = name[: -len(".manifest.json")]
             completed = sum(
                 1 for e in manifest.entries.values() if e.get("status") == "complete"
             )
@@ -275,12 +387,16 @@ def _execute_run(
 
     if summary.interrupted or service._cancelled.get(job.id):
         job.status = "cancelled"
+        service.store.update(job)
+        service.bus.publish(job.id, {"type": "cancelled"})
     else:
         job.status = "done"
-    # Expose the already-complete count under the UI's "skipped" label so the
-    # final report shows the right number (Summary uses `already_complete`).
-    report = dict(summary.__dict__)
-    report["skipped"] = summary.already_complete
-    job.report = report
-    service.store.update(job)
-    service.bus.publish(job.id, {"type": "complete", "report": report})
+        # Expose the already-complete count under the UI's "skipped" label so the
+        # final report shows the right number (Summary uses `already_complete`).
+        report = dict(summary.__dict__)
+        report["skipped"] = summary.already_complete
+        job.report = report
+        service.store.update(job)
+        service.bus.publish(job.id, {"type": "complete", "report": report})
+    # Drop the cancel flag so the dict does not grow without bound (L1).
+    service._cancelled.pop(job.id, None)

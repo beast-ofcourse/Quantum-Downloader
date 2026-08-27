@@ -9,7 +9,7 @@ from typing import Any, Dict, List
 
 from rich.console import Console
 
-from ytchannel.archiver import batch_eta, run_archiver
+from ytchannel.archiver import run_archiver
 from ytchannel.config import Config
 from ytchannel.downloader import DownloadReporter
 from ytchannel.manifest import Manifest
@@ -98,15 +98,6 @@ def test_run_archiver_concurrent_parallel(tmp_path: Path) -> None:
         assert manifest.is_complete(v["video_id"])
     # More than one distinct worker thread name proves parallel execution.
     assert len(set(_RECORDED_THREADS)) > 1
-
-
-def test_batch_eta() -> None:
-    # Linear extrapolation: 20s for 2 of 10 -> 80s remaining.
-    assert batch_eta(2, 10, 20.0) == 80.0
-    # No progress yet -> unknown.
-    assert batch_eta(0, 10, 5.0) is None
-    # Already finished -> unknown.
-    assert batch_eta(10, 10, 5.0) is None
 
 
 class _RecordingReporter(DownloadReporter):

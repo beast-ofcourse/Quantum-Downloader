@@ -76,9 +76,12 @@
     bools.forEach((k) => { if (checked(k)) body[k] = true; });
 
     // Strings: send only when non-empty.
+    // NOTE: template / log_file are intentionally omitted — the web server pins
+    // the output directory and ignores client-supplied filesystem paths for
+    // safety, so offering them here would be a silently-ignored footgun.
     const strings = [
-      "quality", "cookies", "proxy", "template",
-      "manifest_backend", "log_file", "cookies_from_browser",
+      "quality", "cookies", "proxy",
+      "manifest_backend", "cookies_from_browser",
     ];
     strings.forEach((k) => { const v = val(k); if (v) body[k] = v; });
 
@@ -395,7 +398,7 @@
       '<div class="report-title">Dry run — plan only, nothing downloaded</div>' +
       '<div class="report-grid">' +
       '<div><span class="report-num">' + count + '</span><span class="report-lbl">videos</span></div>' +
-      '<div><span class="report-num report-small">' + dateRange + '</span><span class="report-lbl">date range</span></div>' +
+       '<div><span class="report-num report-small">' + escapeHtml(dateRange) + '</span><span class="report-lbl">date range</span></div>' +
       '<div><span class="report-num report-small">' + durStr + '</span><span class="report-lbl">total duration</span></div>' +
       "</div>";
     showFormMessage("Dry run complete.", "info");

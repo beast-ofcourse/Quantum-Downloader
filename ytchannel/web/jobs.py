@@ -84,6 +84,10 @@ class JobStore:
                 job = Job.from_dict(data)
             except (KeyError, TypeError):
                 continue
+            # A job that was "running" when the server stopped can never make
+            # progress again; mark it failed so the UI doesn't show a stuck job.
+            if job.status == "running":
+                job.status = "failed"
             self._index[job.id] = job
 
     def _path(self, job_id: str) -> str:

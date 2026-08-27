@@ -129,3 +129,27 @@ def test_resolve_channel_returns_channel_shape():
     assert result["target_name"] == "Cool Chan"
     assert result["target_id"] == "UC123"
     assert result["videos"][0]["video_id"] == "v1"
+
+
+def test_normalize_channel_url_rejects_lookalike_hosts():
+    # A substring host check is bypassable; the exact allowlist must reject these.
+    for bad in (
+        "http://youtube.com.evil.com/@x/videos",
+        "http://evil.youtube.com.attack/@x/videos",
+        "http://notyoutube.com/@x/videos",
+        "https://youtube.com.evil.com/@x",
+    ):
+        with pytest.raises(ValueError):
+            normalize_channel_url(bad)
+    # Legitimate hosts still normalize correctly.
+    assert normalize_channel_url("https://www.youtube.com/@handle/videos").endswith("/videos")
+    assert normalize_channel_url("https://m.youtube.com/@handle").endswith("/videos")
+
+
+def test_normalize_playlist_url_rejects_lookalike_hosts():
+    for bad in (
+        "http://youtube.com.evil.com/playlist?list=PLx",
+        "http://evil.youtube.com.attack/playlist?list=PLx",
+    ):
+        with pytest.raises(ValueError):
+            normalize_playlist_url(bad)

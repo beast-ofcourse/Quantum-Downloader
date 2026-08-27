@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import queue
 import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -25,7 +26,7 @@ from starlette.background import BackgroundTask
 
 from .events import EventBus
 from .jobs import JobStore
-from .service import Service
+from .service import MAX_CONCURRENT_JOBS, Service, validate_web_options
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -92,11 +93,29 @@ def create_app() -> FastAPI:
         _: None = Depends(verify_origin),
     ) -> Dict[str, Any]:
         data = await request.json()
+        if not isinstance(data, dict):
+            raise HTTPException(status_code=400, detail="request body must be a JSON object")
         url = data.get("url")
-        if not url:
+        if not url or not isinstance(url, str):
             raise HTTPException(status_code=400, detail="url is required")
-        options = {k: v for k, v in data.items() if k != "url"}
-        job = request.app.state.store.create(url, options)
+        try:
+            options = validate_web_options(
+                {k: v for k, v in data.items() if k != "url"}
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        store = request.app.state.store
+        # Bound concurrent work so a client cannot exhaust threads (DoS).
+        active = sum(
+            1 for j in store.list_jobs() if j.status in ("running", "queued")
+        )
+        if active >= MAX_CONCURRENT_JOBS:
+            raise HTTPException(
+                status_code=429, detail="too many active jobs; try again later"
+            )
+
+        job = store.create(url, options)
         # Launch the run. start_job does the fast resolve/plan inline and hands
         # the blocking archiver call to a worker thread, so this returns
         # immediately while progress is carried by the WebSocket/events.
@@ -179,11 +198,24 @@ def create_app() -> FastAPI:
                         {"type": "failed", "error": (job.report or {}).get("error")}
                     )
             else:
-                while True:
-                    event = await asyncio.to_thread(q.get)
-                    await websocket.send_json(event)
-                    if event.get("type") in ("complete", "cancelled", "failed"):
-                        break
+                get_task = None
+                try:
+                    while True:
+                        # Poll with a timeout so a client disconnect can cancel
+                        # the blocked get() instead of leaking the task forever.
+                        get_task = asyncio.ensure_future(
+                            asyncio.to_thread(q.get, 0.5)
+                        )
+                        try:
+                            event = await get_task
+                        except queue.Empty:
+                            continue
+                        await websocket.send_json(event)
+                        if event.get("type") in ("complete", "cancelled", "failed"):
+                            break
+                finally:
+                    if get_task is not None:
+                        get_task.cancel()
         finally:
             bus.unsubscribe(job_id, q)
         await websocket.close()
@@ -209,8 +241,10 @@ def create_app() -> FastAPI:
         from ..utils.organize import sanitize_segment
 
         data = await request.json()
+        if not isinstance(data, dict):
+            raise HTTPException(status_code=400, detail="request body must be a JSON object")
         url = data.get("url")
-        if not url:
+        if not url or not isinstance(url, str):
             raise HTTPException(status_code=400, detail="url is required")
         playlist = bool(data.get("playlist", False))
         fmt = data.get("format", "json")
@@ -225,12 +259,20 @@ def create_app() -> FastAPI:
         suffix = ".csv" if fmt == "csv" else ".json"
         fd, tmp = tempfile.mkstemp(suffix=suffix)
         os.close(fd)
-        if fmt == "csv":
-            export_csv(result, tmp)
-            media_type = "text/csv"
-        else:
-            export_json(result, tmp)
-            media_type = "application/json"
+        try:
+            if fmt == "csv":
+                export_csv(result, tmp)
+                media_type = "text/csv"
+            else:
+                export_json(result, tmp)
+                media_type = "application/json"
+        except Exception:
+            # Don't leak the temp file if export fails.
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            raise HTTPException(status_code=500, detail="failed to build export")
         target_name = result.get("target_name") or result.get("target_id") or "target"
         filename = f"{sanitize_segment(target_name)}{suffix}"
         # Delete the temp file after the response is sent (BackgroundTask runs

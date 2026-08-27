@@ -6,6 +6,7 @@ monkeypatched with canned fakes. Job state and downloads go to tmp_path.
 
 from __future__ import annotations
 
+import threading
 import time
 from typing import Any, Dict
 
@@ -234,3 +235,121 @@ def test_eventbus_publish_delivers_and_drops() -> None:
     bus.unsubscribe("job1", q)
     bus.publish("job1", {"type": "y"})
     assert q.empty()
+
+
+def test_eventbus_concurrent_publish_subscribe() -> None:
+    # The bus must be thread-safe: concurrent publishers + subscribers must not
+    # raise (e.g. "list changed size during iteration").
+    bus = EventBus()
+    q = bus.subscribe("job1")
+    errors: list = []
+
+    def publisher() -> None:
+        try:
+            for i in range(300):
+                bus.publish("job1", {"i": i})
+        except Exception as e:  # pragma: no cover - failure path
+            errors.append(repr(e))
+
+    def subscriber() -> None:
+        try:
+            for _ in range(300):
+                q.get(timeout=3)
+        except Exception as e:  # pragma: no cover - failure path
+            errors.append(repr(e))
+
+    threads = [threading.Thread(target=publisher) for _ in range(3)] + [
+        threading.Thread(target=subscriber) for _ in range(3)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors, errors
+
+
+def test_cancel_job_emits_cancelled_event(client: TestClient) -> None:
+    # Regression: a cancelled run must publish a "cancelled" terminal event,
+    # not a "complete" one (the old bug made cancelled jobs look successful).
+    client.app.state.service.downloader_cls = SlowDownloader
+    r = client.post("/api/jobs", json={"url": "https://www.youtube.com/@test/videos"})
+    job_id = r.json()["job_id"]
+    for _ in range(200):
+        if client.get(f"/api/jobs/{job_id}").json()["status"] == "running":
+            break
+        time.sleep(0.02)
+    client.post(f"/api/jobs/{job_id}/cancel")
+    with client.websocket_connect(f"/api/jobs/{job_id}/progress") as ws:
+        msg = ws.receive_json()  # snapshot (no "type")
+        while True:
+            msg = ws.receive_json()
+            if msg.get("type") in ("cancelled", "complete", "failed"):
+                break
+    assert msg["type"] == "cancelled"
+
+
+def test_list_targets_sqlite_key(client: TestClient, tmp_path: Any) -> None:
+    # Regression: list_targets must derive the key from the .sqlite suffix,
+    # not the (shorter) .manifest.json suffix.
+    from ytchannel.manifest import Manifest
+
+    key = "channel_UC1234abcd"
+    m = Manifest.open(str(tmp_path / f"{key}.manifest.json"), backend="sqlite")
+    m.reconcile([{"video_id": "v1", "title": "V1"}], "Chan")
+    m.save()
+    targets = client.app.state.service.list_targets(str(tmp_path))
+    assert len(targets) == 1
+    assert targets[0]["key"] == key
+
+
+def test_create_job_rejects_bad_options(client: TestClient) -> None:
+    # Non-dict body.
+    r = client.post("/api/jobs", json="not-a-dict")
+    assert r.status_code == 400
+    # concurrency must be >= 1.
+    r = client.post(
+        "/api/jobs",
+        json={"url": "https://www.youtube.com/@test/videos", "concurrency": 0},
+    )
+    assert r.status_code == 400
+    # after must be YYYYMMDD.
+    r = client.post(
+        "/api/jobs",
+        json={"url": "https://www.youtube.com/@test/videos", "after": "2020-01-01"},
+    )
+    assert r.status_code == 400
+    # Unsafe keys (template/output_dir) are dropped, not rejected.
+    r = client.post(
+        "/api/jobs",
+        json={
+            "url": "https://www.youtube.com/@test/videos",
+            "template": "/evil",
+            "output_dir": "/x",
+        },
+    )
+    assert r.status_code == 200
+
+
+def test_create_job_rejects_when_at_capacity(
+    client: TestClient, monkeypatch: Any
+) -> None:
+    monkeypatch.setattr("ytchannel.web.app.MAX_CONCURRENT_JOBS", 1)
+    client.app.state.service.downloader_cls = SlowDownloader
+    r = client.post("/api/jobs", json={"url": "https://www.youtube.com/@test/videos"})
+    assert r.status_code == 200
+    for _ in range(200):
+        if client.get(f"/api/jobs/{r.json()['job_id']}").json()["status"] == "running":
+            break
+        time.sleep(0.02)
+    r2 = client.post("/api/jobs", json={"url": "https://www.youtube.com/@test/videos"})
+    assert r2.status_code == 429
+
+
+def test_jobstore_recovers_running_as_failed(tmp_path: Any) -> None:
+    store = JobStore(str(tmp_path / "jobs"))
+    job = store.create("https://www.youtube.com/@x/videos", {})
+    job.status = "running"
+    store.update(job)
+    # Reload (simulates a server restart).
+    store2 = JobStore(str(tmp_path / "jobs"))
+    assert store2.get(job.id).status == "failed"

@@ -136,3 +136,38 @@ def test_ydl_opts_template_override():
         lambda d: None
     )
     assert opts["outtmpl"] == "%(title)s.%(ext)s"
+
+
+def test_ydl_opts_has_socket_timeout():
+    # Bound a hung connection so a worker thread cannot block forever (DoS).
+    opts = Downloader("/o", "c")._build_ydl_opts(lambda d: None)
+    assert opts.get("socket_timeout") == 30
+
+
+def test_classify_error_format_not_available_is_not_permanent():
+    # A --quality config error must NOT permanently blacklist an otherwise-fine
+    # video; the user can fix the quality and re-run.
+    assert classify_error("ERROR: requested format is not available") != "permanent"
+    # Genuine permanent failures are still permanent.
+    assert classify_error("this is a private video") == "permanent"
+    assert classify_error("this video is not available") == "permanent"
+
+
+def test_download_marks_failed_when_path_unresolvable(tmp_path, monkeypatch):
+    # If yt-dlp yields no concrete file path, the video must be marked failed,
+    # not recorded as "complete" with the channel directory as its file.
+    import ytchannel.downloader as dl_mod
+    from ytchannel.manifest import Manifest
+
+    manifest = Manifest(str(tmp_path / "m.manifest.json"))
+    manifest.reconcile([{"video_id": "v1", "title": "V1"}], "Chan")
+
+    fake_ydl = MagicMock()
+    fake_ydl.__enter__.return_value.extract_info.return_value = {"id": "v1"}
+    fake_ydl.__enter__.return_value.prepare_filename.return_value = None
+    monkeypatch.setattr(dl_mod.yt_dlp, "YoutubeDL", lambda *a, **k: fake_ydl)
+
+    dl = Downloader(str(tmp_path), "c")
+    outcome = dl.download({"video_id": "v1", "title": "V1"}, manifest)
+    assert outcome["status"] == "failed"
+    assert manifest.entries["v1"]["status"] == "failed"

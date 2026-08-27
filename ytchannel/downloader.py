@@ -20,15 +20,15 @@ from .utils.organize import build_channel_dir, output_template, safe_output_path
 from .utils.rate_limit import RateLimiter
 
 # Substrings (lowercased) that indicate a failure we should NOT retry.
-# NOTE: keep these specific — a bare "not available" would wrongly catch
-# "requested format is not available" (a --quality config issue, not a
-# content-unavailability) and permanently blacklist an otherwise-fine video.
+# NOTE: keep these specific. "requested format is not available" is deliberately
+# excluded: it is a --quality config error (or a transient format-list issue),
+# not a content-unavailability, so it must NOT permanently blacklist an
+# otherwise-fine video — the user can fix the quality and re-run.
 PERMANENT_MARKERS = (
     "private video",
     "video unavailable",
     "this video is not available",
     "video is not available",
-    "requested format is not available",
     "members-only",
     "members only",
     "removed by the user",
@@ -162,6 +162,7 @@ class Downloader:
             "ignoreerrors": False,
             "noplaylist": True,
             "windowsfilenames": True,  # safe on all platforms; required on Windows
+            "socket_timeout": 30,  # bound a hung connection so a worker can't block forever
             "progress_hooks": [progress_hook],
         }
         if self.verbose:
@@ -263,8 +264,22 @@ class Downloader:
                         path
                         or captured.get("path")
                         or (info.get("filepath") if isinstance(info, dict) else None)
-                        or self.channel_dir
                     )
+                    # If we still have no concrete file path (or only fell back
+                    # to the directory), treat the download as failed rather than
+                    # recording the directory itself as a "complete" file.
+                    if not path or path == self.channel_dir:
+                        manifest.mark_failed(
+                            video_id,
+                            "could not determine output file path",
+                            permanent=False,
+                        )
+                        reporter.video_finish()
+                        return {
+                            "video_id": video_id,
+                            "status": "failed",
+                            "error": "could not determine output file path",
+                        }
                 # Windows path-length guard: if the resolved path exceeds the
                 # legacy MAX_PATH limit, rename to a truncated, collision-safe
                 # path. Non-Windows is unaffected.

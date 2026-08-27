@@ -9,8 +9,17 @@ single [defaults] table (or flat keys) describing the persistent default flags.
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 from typing import Any, Optional
+
+try:
+    import tomllib  # Python 3.11+
+except ModuleNotFoundError:  # pragma: no cover - only on <3.11 without tomli
+    try:
+        import tomli as tomllib  # type: ignore
+    except ModuleNotFoundError:
+        tomllib = None  # type: ignore
 
 DEFAULT_CONFIG_PATH = os.path.join(
     os.path.expanduser("~"), ".config", "ytchannel", "config.toml"
@@ -67,23 +76,24 @@ class Config:
     @classmethod
     def from_file(cls, path: str = DEFAULT_CONFIG_PATH) -> "Config":
         cfg = cls()
+        if tomllib is None:
+            if os.path.exists(path):
+                print(
+                    f"Warning: TOML support unavailable; ignoring config {path}",
+                    file=sys.stderr,
+                )
+            return cfg
         if not os.path.exists(path):
             return cfg
         try:
-            import tomllib  # Python 3.11+
-
             with open(path, "rb") as f:
                 data = tomllib.load(f)
-        except ModuleNotFoundError:
-            # Fallback for <3.11 if a TOML lib happens to be present.
-            try:
-                import tomli as tomllib  # type: ignore
-
-                with open(path, "rb") as f:
-                    data = tomllib.load(f)
-            except ModuleNotFoundError:
-                return cfg
-        except (OSError, Exception):
+        except (OSError, tomllib.TOMLDecodeError) as e:
+            # A malformed config should not fail silently; warn and fall back.
+            print(
+                f"Warning: could not read config {path} ({e}); using defaults.",
+                file=sys.stderr,
+            )
             return cfg
 
         section = data.get("defaults", data)

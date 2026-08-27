@@ -36,6 +36,17 @@ _TAB_SEGMENTS = {
     "live",
 }
 
+# Hosts we are willing to resolve at all. An exact allowlist (not a substring
+# match) so look-alikes like "youtube.com.evil.com" or "evil.youtube.com.attack"
+# are rejected — important because yt-dlp follows redirects and a crafted host
+# could pivot to internal/metadata endpoints (SSRF).
+_ALLOWED_HOSTS = {
+    "youtube.com",
+    "www.youtube.com",
+    "m.youtube.com",
+    "youtu.be",
+}
+
 
 class ResolutionError(Exception):
     """Raised when a channel/playlist URL cannot be resolved to a video list."""
@@ -60,14 +71,14 @@ def normalize_channel_url(url: str) -> str:
     parsed = urlparse(url)
     if not parsed.netloc:
         raise ValueError(f"Invalid URL: {url}")
-    host = parsed.netloc.lower()
-    if "youtu.be" in host:
+    host = parsed.netloc.lower().split(":")[0]
+    if host not in _ALLOWED_HOSTS:
+        raise ValueError(f"Not a YouTube URL: {url}")
+    if host == "youtu.be":
         raise ValueError(
             "youtu.be short links point to a single video, not a channel. "
             "Provide a channel URL such as https://www.youtube.com/@handle/videos"
         )
-    if "youtube.com" not in host and "youtu.be" not in host:
-        raise ValueError(f"Not a YouTube URL: {url}")
 
     segments = [s for s in parsed.path.split("/") if s]
     if not segments:
@@ -103,8 +114,8 @@ def normalize_playlist_url(url: str) -> str:
     parsed = urlparse(raw)
     if not parsed.netloc:
         raise ValueError(f"Invalid URL: {raw}")
-    host = parsed.netloc.lower()
-    if "youtube.com" not in host and "youtu.be" not in host:
+    host = parsed.netloc.lower().split(":")[0]
+    if host not in _ALLOWED_HOSTS:
         raise ValueError(f"Not a YouTube URL: {raw}")
     qs = parse_qs(parsed.query)
     lists = qs.get("list")

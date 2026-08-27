@@ -267,8 +267,16 @@ def verify(
         key = storage_key(result)
         manifest_file = manifest_path(output_dir, key)
 
+    # Open with an explicit backend so `verify` (a read-only check) never
+    # triggers the JSON->SQLite auto-migration as a side effect.
+    if os.path.exists(manifest_file):
+        verify_backend = "json"
+    elif os.path.exists(os.path.splitext(manifest_file)[0] + ".sqlite"):
+        verify_backend = "sqlite"
+    else:
+        verify_backend = cfg.manifest_backend
     try:
-        manifest = Manifest.open(manifest_file, backend=cfg.manifest_backend)
+        manifest = Manifest.open(manifest_file, backend=verify_backend)
     except ManifestError as e:
         raise _fail(str(e))
 
@@ -354,6 +362,12 @@ def serve(
     port: int = typer.Option(8765, "--port", help="Bind port (auto-increments if busy)."),
     no_browser: bool = typer.Option(False, "--no-browser", help="Do not auto-open a browser."),
     reload: bool = typer.Option(False, "--reload", help="Enable auto-reload (dev only)."),
+    allow_exposed: bool = typer.Option(
+        False,
+        "--allow-exposed",
+        help="Required to bind a non-loopback host. The web UI has NO "
+        "authentication, so only use this on a trusted network.",
+    ),
 ) -> None:
     """Start the local web UI server (opens http://<host>:<port>/)."""
     import socket
@@ -362,7 +376,12 @@ def serve(
     # Lazy import so `ytchannel --help` and other commands work without fastapi.
     from .web import create_app
 
-    if host not in ("127.0.0.1", "localhost"):
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        if not allow_exposed:
+            raise _fail(
+                f"Refusing to bind {host}: the web UI has NO authentication. "
+                f"Pass --allow-exposed to bind a non-loopback host at your own risk."
+            )
         err_console.print(
             f"Warning: serving on {host} — the web UI has NO authentication and "
             f"will be exposed to the network."
