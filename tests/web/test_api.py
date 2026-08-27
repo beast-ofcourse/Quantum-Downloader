@@ -10,6 +10,8 @@ import time
 from typing import Any, Dict
 
 import pytest
+
+pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 import ytchannel.resolver as resolver_mod

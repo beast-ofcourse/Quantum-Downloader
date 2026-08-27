@@ -78,7 +78,8 @@ class Service:
     async def start_job(self, job: Job) -> None:
         """Resolve, plan, and launch (or dry-run) the job's download.
 
-        The fast resolve/plan work happens inline; the blocking
+        The fast resolve/plan work happens inline (so ``target_key`` is known
+        immediately for late WebSocket subscribers); the blocking
         :func:`run_archiver` call is handed to a daemon thread so progress and
         cancellation are independent of the request/event-loop lifecycle.
         """
@@ -169,8 +170,14 @@ class Service:
 
     def snapshot(self, output_dir: str, key: str) -> dict:
         """Best-effort live state of a target manifest (for late subscribers)."""
-        path = manifest_path(output_dir, key)
-        if not os.path.exists(path):
+        # A target may be stored as JSON (default) or SQLite (--manifest sqlite);
+        # try both candidate paths.
+        candidates = [
+            manifest_path(output_dir, key),
+            os.path.splitext(manifest_path(output_dir, key))[0] + ".sqlite",
+        ]
+        path = next((p for p in candidates if os.path.exists(p)), None)
+        if path is None:
             return {"exists": False}
         try:
             manifest = Manifest.open(path, backend="auto")
@@ -206,9 +213,14 @@ class Service:
         if not os.path.isdir(output_dir):
             return results
         for name in os.listdir(output_dir):
-            if not name.endswith(".manifest.json"):
+            if name.endswith(".manifest.json"):
+                path = os.path.join(output_dir, name)
+                key = name[: -len(".manifest.json")]
+            elif name.endswith(".sqlite"):
+                path = os.path.join(output_dir, name)
+                key = name[: -len(".sqlite")]
+            else:
                 continue
-            path = os.path.join(output_dir, name)
             try:
                 manifest = Manifest.open(path, backend="auto")
             except Exception:

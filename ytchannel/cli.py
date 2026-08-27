@@ -389,7 +389,24 @@ def serve(
 
     import uvicorn
 
-    uvicorn.run(create_app(), host=host, port=actual_port, reload=reload)
+    # uvicorn.bind may still race with another process between the probe above
+    # and uvicorn's own bind (TOCTOU); retry on address-in-use instead of dying.
+    bind_port = actual_port
+    while True:
+        try:
+            uvicorn.run(create_app(), host=host, port=bind_port, reload=reload)
+            break
+        except OSError as e:
+            msg = str(e).lower()
+            if bind_port - actual_port < 100 and (
+                "address already in use" in msg or "10048" in msg
+            ):
+                bind_port += 1
+                console.print(
+                    f"[yellow]Port {bind_port - 1} in use; trying {bind_port}...[/]"
+                )
+            else:
+                raise
 
 
 def main() -> None:

@@ -21,6 +21,7 @@ from urllib.parse import urlparse
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.background import BackgroundTask
 
 from .events import EventBus
 from .jobs import JobStore
@@ -232,7 +233,14 @@ def create_app() -> FastAPI:
             media_type = "application/json"
         target_name = result.get("target_name") or result.get("target_id") or "target"
         filename = f"{sanitize_segment(target_name)}{suffix}"
-        return FileResponse(tmp, media_type=media_type, filename=filename)
+        # Delete the temp file after the response is sent (BackgroundTask runs
+        # once the response has been streamed to the client).
+        return FileResponse(
+            tmp,
+            media_type=media_type,
+            filename=filename,
+            background=BackgroundTask(os.remove, tmp),
+        )
 
     # Serve the static SPA. The frontend agent owns ytchannel/web/static, so we
     # only mount it when it actually exists (otherwise API-only use still works).
