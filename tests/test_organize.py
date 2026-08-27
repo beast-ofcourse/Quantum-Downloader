@@ -1,12 +1,22 @@
 """Tests for filesystem organization helpers."""
 
 import os
+import sys
+
+import pytest
 
 from ytchannel.utils.organize import (
     build_channel_dir,
     output_template,
     safe_output_path,
     sanitize_segment,
+)
+
+# The truncation branch in safe_output_path only runs when os.name == "nt" and
+# relies on WindowsPath, which cannot be instantiated off Windows. Guard the
+# Windows-specific cases so they run only on a real Windows host.
+_requires_windows = pytest.mark.skipif(
+    sys.platform != "win32", reason="Windows-specific path truncation behavior"
 )
 
 
@@ -56,6 +66,7 @@ def test_safe_output_path_unchanged_when_not_windows():
         assert p.endswith("20230101_" + "A" * 1000 + ".mp4")
 
 
+@_requires_windows
 def test_safe_output_path_truncates_on_nt(monkeypatch):
     monkeypatch.setattr(os, "name", "nt")
     long_title = "T" * 1000
@@ -65,6 +76,7 @@ def test_safe_output_path_truncates_on_nt(monkeypatch):
     assert "_" in p
 
 
+@_requires_windows
 def test_safe_output_path_distinct_suffixes_for_similar_titles(monkeypatch):
     monkeypatch.setattr(os, "name", "nt")
     a = "A" * 1000
@@ -76,6 +88,7 @@ def test_safe_output_path_distinct_suffixes_for_similar_titles(monkeypatch):
     assert len(pb) <= 259
 
 
+@_requires_windows
 def test_safe_output_path_handles_missing_date(monkeypatch):
     monkeypatch.setattr(os, "name", "nt")
     p = safe_output_path("/dl/chan", None, "X" * 1000, ".mkv")
