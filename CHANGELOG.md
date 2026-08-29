@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-29
+
+### Added
+
+- **Multi-platform downloads** — download a single video (and its audio via
+  `--audio-only`) from **Instagram** and **JioHotstar**, plus a single YouTube
+  video, in addition to the existing YouTube channel/playlist archiving. The
+  platform is auto-detected from the URL (no extra flag needed). Routed through
+  a new `resolve_target` entry point in `ytchannel.resolver`, with
+  `classify_url` gating an exact host allowlist (SSRF-safe). The same
+  resumable/idempotent manifest + Web UI drive all platforms.
+
+### Fixed
+
+- `resolve_target` now resolves a `watch?v=…&list=…` URL to its **playlist**
+  (was incorrectly demoted to a single video), matching the documented
+  behavior. Added `test_resolve_target_watch_with_list_is_playlist` to guard it.
+- Removed redundant `resolve_instagram` / `resolve_hotstar` one-line wrapper
+  functions; `resolve_target` calls `resolve_single_video` directly.
+- Corrected the stale `resolver.py` module docstring (`target_type` is
+  `channel` / `playlist` / `video`; the site lives in `platform`).
+- Clarified the dry-run `target_type` → label mapping in `cli.py`.
+
 ### Added
 
 - **Phase 0 — CI/release pipeline & foundations**
