@@ -26,7 +26,7 @@ from ..downloader import Downloader
 from ..indexer import dry_run_summary
 from ..manifest import BaseManifest, Manifest
 from ..planner import filter_videos, plan_downloads
-from ..resolver import ResolutionError, resolve_channel, resolve_playlist
+from ..resolver import ResolutionError, resolve_target
 from ..storage import manifest_path, storage_key
 from .events import EventBus
 from .jobs import Job, JobStore
@@ -210,10 +210,7 @@ class Service:
 
         # 2. Validate / resolve the URL.
         try:
-            if options.get("playlist"):
-                result = resolve_playlist(job.url, quiet=True)
-            else:
-                result = resolve_channel(job.url, quiet=True)
+            result = resolve_target(job.url, playlist=options.get("playlist", False), quiet=True)
         except (ResolutionError, ValueError) as e:
             job.status = "failed"
             job.report = {"error": str(e)}

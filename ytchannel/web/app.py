@@ -237,7 +237,7 @@ def create_app() -> FastAPI:
         request: Request, _: None = Depends(verify_origin)
     ) -> FileResponse:
         from ..indexer import export_csv, export_json
-        from ..resolver import ResolutionError, resolve_channel, resolve_playlist
+        from ..resolver import ResolutionError, resolve_target
         from ..utils.organize import sanitize_segment
 
         data = await request.json()
@@ -249,10 +249,7 @@ def create_app() -> FastAPI:
         playlist = bool(data.get("playlist", False))
         fmt = data.get("format", "json")
         try:
-            if playlist:
-                result = resolve_playlist(url, quiet=True)
-            else:
-                result = resolve_channel(url, quiet=True)
+            result = resolve_target(url, playlist=playlist, quiet=True)
         except (ResolutionError, ValueError) as e:
             raise HTTPException(status_code=400, detail=str(e))
 

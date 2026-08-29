@@ -40,7 +40,7 @@ def test_download_skips_complete_but_not_permanent_failures(monkeypatch, tmp_pat
 
     from ytchannel.manifest import Manifest
 
-    def fake_resolve(url, quiet=True):
+    def fake_resolve(url, playlist=False, quiet=True):
         return {
             "target_type": "channel",
             "target_name": "Test",
@@ -60,7 +60,7 @@ def test_download_skips_complete_but_not_permanent_failures(monkeypatch, tmp_pat
             manifest.mark_complete(video["video_id"], "p.mp4")
             return {"video_id": video["video_id"], "status": "complete", "file_path": "p.mp4"}
 
-    monkeypatch.setattr(cli_mod, "resolve_channel", fake_resolve)
+    monkeypatch.setattr(cli_mod, "resolve_target", fake_resolve)
     monkeypatch.setattr(cli_mod, "Downloader", FakeDownloader)
 
     # Pre-populate: v0,v1 complete; v2 permanent-failed; v3,v4 pending.
@@ -134,7 +134,7 @@ def test_verify_manifest_path_reports_present(tmp_path):
 
 
 def test_update_command_adds_videos(monkeypatch, tmp_path):
-    def fake_resolve(url, quiet=True):
+    def fake_resolve(url, playlist=False, quiet=True):
         return {
             "target_type": "channel",
             "target_name": "Test",
@@ -143,7 +143,7 @@ def test_update_command_adds_videos(monkeypatch, tmp_path):
             "videos": [{"video_id": f"v{i}", "title": f"V{i}"} for i in range(3)],
         }
 
-    monkeypatch.setattr(cli_mod, "resolve_channel", fake_resolve)
+    monkeypatch.setattr(cli_mod, "resolve_target", fake_resolve)
 
     runner = CliRunner()
     result = runner.invoke(
@@ -154,7 +154,7 @@ def test_update_command_adds_videos(monkeypatch, tmp_path):
 
 
 def test_download_rejects_both_cookie_sources(monkeypatch):
-    def fake_resolve(url, quiet=True):
+    def fake_resolve(url, playlist=False, quiet=True):
         return {
             "target_type": "channel",
             "target_name": "T",
@@ -163,7 +163,7 @@ def test_download_rejects_both_cookie_sources(monkeypatch):
             "videos": [{"video_id": "v0", "title": "V0"}],
         }
 
-    monkeypatch.setattr(cli_mod, "resolve_channel", fake_resolve)
+    monkeypatch.setattr(cli_mod, "resolve_target", fake_resolve)
 
     runner = CliRunner()
     result = runner.invoke(

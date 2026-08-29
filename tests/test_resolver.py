@@ -3,13 +3,17 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+from yt_dlp.utils import DownloadError
 
 from ytchannel.resolver import (
     ResolutionError,
+    classify_url,
     normalize_channel_url,
     normalize_playlist_url,
     resolve_channel,
     resolve_playlist,
+    resolve_single_video,
+    resolve_target,
 )
 
 
@@ -153,3 +157,144 @@ def test_normalize_playlist_url_rejects_lookalike_hosts():
     ):
         with pytest.raises(ValueError):
             normalize_playlist_url(bad)
+
+
+# --- platform classification -------------------------------------------------
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("https://www.youtube.com/@handle/videos", "youtube"),
+        ("https://www.youtube.com/watch?v=abc", "youtube"),
+        ("https://youtu.be/abc", "youtube"),
+        ("https://www.instagram.com/p/ABC123/", "instagram"),
+        ("https://www.instagram.com/reel/ABC123/", "instagram"),
+        ("https://www.instagram.com/tv/ABC123/", "instagram"),
+        ("https://www.hotstar.com/in/movies/foo/123", "hotstar"),
+        ("https://in.hotstar.com/tv/bar/456", "hotstar"),
+    ],
+)
+def test_classify_url(raw, expected):
+    assert classify_url(raw) == expected
+
+
+def test_classify_url_rejects_unsupported():
+    with pytest.raises(ValueError):
+        classify_url("https://example.com/p/abc")
+    with pytest.raises(ValueError):
+        classify_url("https://tiktok.com/@user/video/1")
+    with pytest.raises(ValueError):
+        classify_url("")
+
+
+# --- single-video resolution (mocked yt-dlp) ---------------------------------
+def test_resolve_single_video_youtube_shape():
+    info = {
+        "id": "vid1",
+        "title": "My Clip",
+        "webpage_url": "https://www.youtube.com/watch?v=vid1",
+        "upload_date": "20240101",
+        "duration": 42,
+    }
+    with patch("ytchannel.resolver.yt_dlp.YoutubeDL", return_value=_mock_ydl(info)):
+        result = resolve_single_video("https://www.youtube.com/watch?v=vid1")
+    assert result["target_type"] == "video"
+    assert result["platform"] == "youtube"
+    assert len(result["videos"]) == 1
+    v = result["videos"][0]
+    assert v["video_id"] == "youtube-vid1"
+    assert v["title"] == "My Clip"
+    assert v["url"] == "https://www.youtube.com/watch?v=vid1"
+
+
+def test_resolve_single_video_instagram_shape():
+    info = {
+        "id": "ig1",
+        "title": "IG Post",
+        "webpage_url": "https://www.instagram.com/p/ig1/",
+    }
+    with patch("ytchannel.resolver.yt_dlp.YoutubeDL", return_value=_mock_ydl(info)):
+        result = resolve_single_video("https://www.instagram.com/p/ig1/")
+    assert result["target_type"] == "video"
+    assert result["platform"] == "instagram"
+    assert result["videos"][0]["video_id"] == "instagram-ig1"
+    assert result["videos"][0]["url"] == "https://www.instagram.com/p/ig1/"
+
+
+def test_resolve_single_video_hotstar_shape():
+    info = {
+        "id": "hs1",
+        "title": "Hotstar Movie",
+        "webpage_url": "https://www.hotstar.com/in/movies/x/1",
+    }
+    with patch("ytchannel.resolver.yt_dlp.YoutubeDL", return_value=_mock_ydl(info)):
+        result = resolve_single_video("https://www.hotstar.com/in/movies/x/1")
+    assert result["platform"] == "hotstar"
+    assert result["videos"][0]["video_id"] == "hotstar-hs1"
+
+
+def test_resolve_single_video_extract_error_raises():
+    with patch(
+        "ytchannel.resolver.yt_dlp.YoutubeDL",
+        side_effect=DownloadError("boom"),
+    ):
+        with pytest.raises(ResolutionError):
+            resolve_single_video("https://www.instagram.com/p/ig1/")
+
+
+def test_resolve_single_video_playlist_page_drills_to_entry():
+    # A watch URL that resolves to a list: take the first concrete entry.
+    info = {
+        "entries": [
+            {"id": "vid1", "title": "V1", "webpage_url": "https://www.youtube.com/watch?v=vid1"},
+            {"id": "vid2", "title": "V2", "webpage_url": "https://www.youtube.com/watch?v=vid2"},
+        ]
+    }
+    with patch("ytchannel.resolver.yt_dlp.YoutubeDL", return_value=_mock_ydl(info)):
+        result = resolve_single_video("https://www.youtube.com/watch?v=vid1&list=PLx")
+    assert len(result["videos"]) == 1
+    assert result["videos"][0]["video_id"] == "youtube-vid1"
+
+
+# --- unified resolve_target ---------------------------------------------------
+def test_resolve_target_youtube_watch_is_single_video():
+    info = {"id": "vid1", "title": "Clip", "webpage_url": "https://www.youtube.com/watch?v=vid1"}
+    with patch("ytchannel.resolver.yt_dlp.YoutubeDL", return_value=_mock_ydl(info)):
+        result = resolve_target("https://www.youtube.com/watch?v=vid1")
+    assert result["target_type"] == "video"
+
+
+def test_resolve_target_youtu_be_is_single_video():
+    info = {"id": "vid1", "title": "Clip", "webpage_url": "https://youtu.be/vid1"}
+    with patch("ytchannel.resolver.yt_dlp.YoutubeDL", return_value=_mock_ydl(info)):
+        result = resolve_target("https://youtu.be/vid1")
+    assert result["target_type"] == "video"
+    assert result["platform"] == "youtube"
+
+
+def test_resolve_target_watch_with_list_is_playlist():
+    # Regression: a watch?v=...&list=PL... URL must resolve to its playlist,
+    # not be demoted to a single video (the project documents it as a playlist).
+    info = {"title": "My Playlist", "id": "PLabc", "entries": [{"id": "v1"}]}
+    with patch("ytchannel.resolver.yt_dlp.YoutubeDL", return_value=_mock_ydl(info)):
+        result = resolve_target("https://www.youtube.com/watch?v=vid1&list=PLabc")
+    assert result["target_type"] == "playlist"
+    assert result["platform"] == "youtube"
+
+
+def test_resolve_target_instagram_delegates_to_single_video():
+    info = {"id": "ig1", "title": "IG", "webpage_url": "https://www.instagram.com/p/ig1/"}
+    with patch("ytchannel.resolver.yt_dlp.YoutubeDL", return_value=_mock_ydl(info)):
+        result = resolve_target("https://www.instagram.com/p/ig1/")
+    assert result["platform"] == "instagram"
+
+
+def test_resolve_target_hotstar_delegates_to_single_video():
+    info = {"id": "hs1", "title": "HS", "webpage_url": "https://www.hotstar.com/in/movies/x/1"}
+    with patch("ytchannel.resolver.yt_dlp.YoutubeDL", return_value=_mock_ydl(info)):
+        result = resolve_target("https://www.hotstar.com/in/movies/x/1")
+    assert result["platform"] == "hotstar"
+
+
+def test_resolve_target_rejects_unsupported_host():
+    with pytest.raises(ValueError):
+        resolve_target("https://example.com/p/abc")

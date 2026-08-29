@@ -19,6 +19,10 @@ It is a thin orchestration layer over [`yt-dlp`](https://github.com/yt-dlp/yt-dl
 adding channel-level planning, a manifest of download state, polite rate
 limiting, and a clean CLI.
 
+It also downloads **single videos** from **YouTube**, **Instagram**, and
+**JioHotstar** — paste any of those URLs and it just works (audio-only with
+`--audio-only`).
+
 ---
 
 ## Table of Contents
@@ -84,6 +88,21 @@ Re-run without `--limit` to grab the whole channel, or add `--playlist` to a pla
 URL to archive a playlist instead. Completed videos are always skipped, so it's safe
 to re-run anytime.
 
+Download a single video (YouTube, Instagram, or JioHotstar):
+
+```bash
+# YouTube single video
+ytchannel download "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+# Instagram reel / post
+ytchannel download "https://www.instagram.com/reel/Cxyz123/"
+
+# JioHotstar movie / episode (audio-only with --audio-only)
+ytchannel download "https://www.hotstar.com/in/movies/foo/123" --audio-only
+```
+
+The platform is auto-detected from the URL, so no extra flag is needed.
+
 ## Live demo
 
 ```console
@@ -111,6 +130,9 @@ Downloading 3 video(s) from 'Fireship' to ./downloads
 - **Whole-channel downloads** — point it at a channel URL and walk away.
 - **Playlists too** — pass `--playlist` with a playlist URL, a `watch?v=…&list=…`
   link, or a bare `PL…` id to archive a playlist with the same machinery.
+- **Single videos, any platform** — paste a YouTube, Instagram, or JioHotstar
+  video/reel/post URL and it downloads one item. `--audio-only` works for all
+  three. The platform is auto-detected, no flag required.
 - **Resumable** — state is saved to a manifest after every video; kill the process
   or lose the connection and re-run to continue exactly where you left off.
 - **Idempotent** — re-running never re-downloads completed work.
@@ -286,8 +308,8 @@ ruff check ytchannel   # lint
 ## Web UI
 
 A local, browser-based control panel for non-technical users — paste a channel or
-playlist URL, watch downloads progress live, and cancel anytime. It drives the same
-resumable engine as the CLI.
+playlist URL, a single video URL (YouTube, Instagram, or JioHotstar), watch downloads
+progress live, and cancel anytime. It drives the same resumable engine as the CLI.
 
 ### How to start it — simple steps (no tech knowledge needed)
 

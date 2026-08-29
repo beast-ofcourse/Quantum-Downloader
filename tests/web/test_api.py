@@ -28,21 +28,19 @@ FAKE_VIDEOS = [
 ]
 
 
-def _fake_resolve_channel(url: str, quiet: bool = True) -> Dict[str, Any]:
+def _fake_resolve_target(url: str, playlist: bool = False, quiet: bool = True) -> Dict[str, Any]:
+    if playlist:
+        return {
+            "target_type": "playlist",
+            "target_name": "TestPlaylist",
+            "target_id": "PLtest123",
+            "url": url,
+            "videos": list(FAKE_VIDEOS),
+        }
     return {
         "target_type": "channel",
         "target_name": "TestChannel",
         "target_id": "UCtest123",
-        "url": url,
-        "videos": list(FAKE_VIDEOS),
-    }
-
-
-def _fake_resolve_playlist(url: str, quiet: bool = True) -> Dict[str, Any]:
-    return {
-        "target_type": "playlist",
-        "target_name": "TestPlaylist",
-        "target_id": "PLtest123",
         "url": url,
         "videos": list(FAKE_VIDEOS),
     }
@@ -87,10 +85,8 @@ class SlowDownloader:
 def client(tmp_path: Any, monkeypatch: Any) -> Any:
     # Patch both the service's binding and the resolver module the index
     # endpoint imports from, so every entry point uses the canned resolver.
-    monkeypatch.setattr(service_mod, "resolve_channel", _fake_resolve_channel)
-    monkeypatch.setattr(service_mod, "resolve_playlist", _fake_resolve_playlist)
-    monkeypatch.setattr(resolver_mod, "resolve_channel", _fake_resolve_channel)
-    monkeypatch.setattr(resolver_mod, "resolve_playlist", _fake_resolve_playlist)
+    monkeypatch.setattr(service_mod, "resolve_target", _fake_resolve_target)
+    monkeypatch.setattr(resolver_mod, "resolve_target", _fake_resolve_target)
 
     # The default Config applies a polite rate-limit delay between videos,
     # which would make the offline tests slow. Use a zero-delay, quiet config

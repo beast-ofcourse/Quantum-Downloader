@@ -218,8 +218,10 @@ class Downloader:
         reporter = reporter or DownloadReporter()
         video_id = video["video_id"]
         title = video.get("title") or video_id
-        # The manifest entry stores no URL (per schema); derive a canonical
-        # watch URL from the video ID, which yt-dlp resolves reliably.
+        # Prefer the per-video URL from the resolver (this is the genuine,
+        # platform-specific media URL for YouTube/Instagram/JioHotstar). The
+        # old synthetic YouTuBe watch URL is only a fallback for legacy manifest
+        # entries that stored no URL. yt-dlp resolves these URLs reliably.
         url = video.get("url") or f"https://www.youtube.com/watch?v={video_id}"
 
         reporter.video_start(title)

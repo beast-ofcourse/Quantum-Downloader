@@ -1,17 +1,24 @@
-"""URL resolution and flat playlist extraction for channels and playlists.
+"""URL resolution and flat playlist/standalone extraction for multiple platforms.
 
-Turns a channel or playlist URL in any common form into a canonical URL and
-extracts the full list of video IDs + basic metadata *without* downloading
-anything, using yt-dlp's flat playlist extraction (fast, no per-video requests).
+Turns a YouTube (channel/playlist/single), Instagram (post/reel/IGTV), or
+JioHotstar (movie/show/episode) URL into a canonical target dict with a video
+list — *without* downloading anything.
 
-Both resolvers return the same shape:
+Every resolver returns the same shared shape:
     {
-      "target_type": "channel" | "playlist",
-      "target_name": str,
-      "target_id": str | None,
-      "url": str,            # normalized
-      "videos": List[Dict],  # each with video_id/title/url/upload_date/...
+      "target_type": str,      # "channel" | "playlist" | "video"
+                               # (single media items from any platform use "video")
+      "target_name": str,      # display name for the manifest/folder
+      "target_id": str | None, # stable id for the storage key
+      "platform": str,         # "youtube" | "instagram" | "hotstar"
+      "url": str,              # the URL to drive the downloader with
+      "videos": List[Dict],    # each with video_id/title/url/upload_date/...
     }
+
+Platform detection is driven by an exact host allowlist (not substring match)
+so look-alike hosts ("youtube.com.evil.com") are rejected — important because
+yt-dlp follows redirects and a crafted host could pivot to internal endpoints
+(SSRF).
 """
 
 from __future__ import annotations
@@ -40,18 +47,75 @@ _TAB_SEGMENTS = {
 # match) so look-alikes like "youtube.com.evil.com" or "evil.youtube.com.attack"
 # are rejected — important because yt-dlp follows redirects and a crafted host
 # could pivot to internal/metadata endpoints (SSRF).
-_ALLOWED_HOSTS = {
+_YOUTUBE_HOSTS = {
     "youtube.com",
     "www.youtube.com",
     "m.youtube.com",
     "youtu.be",
 }
 
+_INSTAGRAM_HOSTS = {
+    "instagram.com",
+    "www.instagram.com",
+    "m.instagram.com",
+    "instagr.am",
+    "www.instagr.am",
+}
+
+_HOTSTAR_HOSTS = {
+    "hotstar.com",
+    "www.hotstar.com",
+    "in.hotstar.com",
+    "star.hotstar.com",
+}
+
+_ALLOWED_HOSTS = _YOUTUBE_HOSTS | _INSTAGRAM_HOSTS | _HOTSTAR_HOSTS
+
 
 class ResolutionError(Exception):
-    """Raised when a channel/playlist URL cannot be resolved to a video list."""
+    """Raised when a URL cannot be resolved to a video list."""
 
 
+# ---------------------------------------------------------------------------
+# URL helpers
+# ---------------------------------------------------------------------------
+def _host_of(url: str) -> str:
+    """Return the lowercased host of ``url`` (sans port), or '' if invalid."""
+    if not url or not url.strip():
+        return ""
+    raw = url.strip()
+    if not re.match(r"^https?://", raw, re.IGNORECASE):
+        raw = "https://" + raw
+    parsed = urlparse(raw)
+    netloc = parsed.netloc.lower().split(":")[0]
+    return netloc
+
+
+def classify_url(url: str) -> str:
+    """Return the platform for ``url``: 'youtube' | 'instagram' | 'hotstar'.
+
+    Raises ``ValueError`` for an empty URL or a host we don't support.
+    """
+    if not url or not url.strip():
+        raise ValueError("Empty URL")
+    host = _host_of(url)
+    if not host:
+        raise ValueError(f"Invalid URL: {url}")
+    if host in _YOUTUBE_HOSTS:
+        return "youtube"
+    if host in _INSTAGRAM_HOSTS:
+        return "instagram"
+    if host in _HOTSTAR_HOSTS:
+        return "hotstar"
+    raise ValueError(
+        f"Unsupported host: {host}. "
+        f"Supported: YouTube, Instagram, JioHotstar."
+    )
+
+
+# ---------------------------------------------------------------------------
+# YouTube — channels / playlists
+# ---------------------------------------------------------------------------
 def normalize_channel_url(url: str) -> str:
     """Normalize a channel URL to its /videos tab form.
 
@@ -72,7 +136,7 @@ def normalize_channel_url(url: str) -> str:
     if not parsed.netloc:
         raise ValueError(f"Invalid URL: {url}")
     host = parsed.netloc.lower().split(":")[0]
-    if host not in _ALLOWED_HOSTS:
+    if host not in _YOUTUBE_HOSTS:
         raise ValueError(f"Not a YouTube URL: {url}")
     if host == "youtu.be":
         raise ValueError(
@@ -115,7 +179,7 @@ def normalize_playlist_url(url: str) -> str:
     if not parsed.netloc:
         raise ValueError(f"Invalid URL: {raw}")
     host = parsed.netloc.lower().split(":")[0]
-    if host not in _ALLOWED_HOSTS:
+    if host not in _YOUTUBE_HOSTS:
         raise ValueError(f"Not a YouTube URL: {raw}")
     qs = parse_qs(parsed.query)
     lists = qs.get("list")
@@ -147,6 +211,10 @@ def _extract_videos(info: Any) -> List[Dict[str, Any]]:
             {
                 "video_id": vid,
                 "title": e.get("title"),
+                # Use the per-entry URL when present — this is the genuine,
+                # platform-specific media URL (watch?v=, instagram.com/p/...,
+                # hotstar.com/.../watch) rather than a synthetic one. The
+                # downloader falls back to it directly.
                 "url": e.get("url")
                 or f"https://www.youtube.com/watch?v={vid}",
                 "upload_date": e.get("upload_date"),  # often None in flat mode
@@ -211,6 +279,7 @@ def resolve_channel(url: str, quiet: bool = True) -> Dict[str, Any]:
         "target_type": "channel",
         "target_name": target_name,
         "target_id": info.get("channel_id") or info.get("id"),
+        "platform": "youtube",
         "url": norm,
         "videos": videos,
     }
@@ -249,6 +318,131 @@ def resolve_playlist(url: str, quiet: bool = True) -> Dict[str, Any]:
         "target_type": "playlist",
         "target_name": target_name,
         "target_id": target_id,
+        "platform": "youtube",
         "url": norm,
         "videos": videos,
     }
+
+
+# ---------------------------------------------------------------------------
+# Single video (any supported platform)
+# ---------------------------------------------------------------------------
+def resolve_single_video(url: str, quiet: bool = True) -> Dict[str, Any]:
+    """Resolve a single video (YouTube / Instagram / JioHotstar) into the shape.
+
+    Uses a full (non-flat) extraction so we get a concrete title, upload date,
+    and a real per-media URL. Returns ``target_type == "video"`` with a single
+    entry in ``videos`` whose ``url`` is the original URL.
+    """
+    if not url or not url.strip():
+        raise ValueError("Empty URL")
+    platform = classify_url(url)
+    ydl_opts: Any = {
+        "quiet": quiet,
+        "no_warnings": quiet,
+        "ignoreerrors": False,
+        "skip_download": True,
+        "geo_bypass": True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except DownloadError as e:
+        raise ResolutionError(f"Failed to resolve video: {e}") from e
+    except ExtractorError as e:
+        raise ResolutionError(f"Failed to resolve video: {e}") from e
+
+    if not isinstance(info, dict):
+        raise ResolutionError(f"Could not resolve a video from URL: {url}")
+
+    # A playlist page without a specific video resolves to a list; for a
+    # "single video" request we want exactly one media item, so drill into the
+    # first entry if a list came back.
+    if info.get("entries") and not info.get("_type") == "video":
+        entry = next((e for e in info["entries"] if e), None)
+        if entry is not None:
+            info = entry
+
+    vid = info.get("id")
+    if not vid:
+        raise ResolutionError(f"Could not resolve a video id from URL: {url}")
+
+    platform_label = {
+        "youtube": "YouTube",
+        "instagram": "Instagram",
+        "hotstar": "JioHotstar",
+    }[platform]
+    title = info.get("title") or f"{platform_label} video"
+    media_url = info.get("webpage_url") or info.get("url") or url
+
+    return {
+        "target_type": "video",
+        "target_name": title,
+        "target_id": f"{platform}-{vid}",
+        "platform": platform,
+        "url": url,
+        "videos": [
+            {
+                "video_id": f"{platform}-{vid}",
+                "title": title,
+                "url": media_url,
+                "upload_date": info.get("upload_date"),
+                "duration": info.get("duration"),
+                "view_count": info.get("view_count"),
+            }
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Unified entry point
+# ---------------------------------------------------------------------------
+def resolve_target(
+    url: str,
+    playlist: bool = False,
+    quiet: bool = True,
+) -> Dict[str, Any]:
+    """Resolve any supported URL into the shared target shape.
+
+    Auto-detects the platform from the host. For YouTube:
+
+    * ``playlist=True`` forces playlist resolution;
+    * a URL with a ``list=`` parameter (incl. ``watch?v=…&list=…``) resolves to
+      its playlist (the project documents ``watch?v=…&list=…`` as a playlist);
+    * a bare ``/watch`` link or ``youtu.be`` short link resolves to a single
+      video;
+    * a channel URL resolves to a channel (falling back to a single video if it
+      resolves to one).
+
+    Instagram and JioHotstar URLs resolve to a single video.
+
+    Raises ``ValueError`` (unsupported host) or ``ResolutionError`` (could not
+    resolve) so callers can surface a clean error.
+    """
+    if not url or not url.strip():
+        raise ValueError("Empty URL")
+    platform = classify_url(url)
+    host = _host_of(url)
+    parsed = urlparse(url)
+    has_list = bool(parse_qs(parsed.query).get("list"))
+
+    if platform == "youtube":
+        # A list= parameter always wins, even on a /watch link — the project
+        # documents `watch?v=…&list=…` as a playlist, so check it before the
+        # single-video shortcut below.
+        if has_list or playlist:
+            return resolve_playlist(url, quiet=quiet)
+        # youtu.be short links or /watch urls are single videos.
+        if host == "youtu.be" or "/watch" in (parsed.path or ""):
+            return resolve_single_video(url, quiet=quiet)
+        try:
+            return resolve_channel(url, quiet=quiet)
+        except ResolutionError:
+            # A channel URL that resolves to a single video (e.g. a /watch link
+            # with a channel path) falls back to single-video resolution.
+            return resolve_single_video(url, quiet=quiet)
+    if platform == "instagram":
+        return resolve_single_video(url, quiet=quiet)
+    if platform == "hotstar":
+        return resolve_single_video(url, quiet=quiet)
+    raise ValueError(f"Unsupported host: {host}")

@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "quantum-downloader"
 dynamic = ["version"]
-description = "Download and archive entire YouTube channels and playlists with resumable, idempotent downloads."
+description = "Download and archive YouTube channels/playlists and single videos from YouTube, Instagram, and JioHotstar with resumable, idempotent downloads."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
 authors = [{ name = "beast-ofcourse" }]
-keywords = ["youtube", "yt-dlp", "archiver", "downloader", "channel", "playlist"]
+keywords = ["youtube", "instagram", "jiohotstar", "yt-dlp", "archiver", "downloader", "channel", "playlist", "video"]
 dependencies = [
     "yt-dlp>=2024.1.0",
     "typer>=0.9.0",

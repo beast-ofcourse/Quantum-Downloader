@@ -26,11 +26,11 @@ from .downloader import Downloader
 from .indexer import dry_run_summary, export_csv, export_json, export_jsonl
 from .manifest import Manifest, ManifestError
 from .planner import filter_videos, plan_downloads
-from .resolver import ResolutionError, resolve_channel, resolve_playlist
+from .resolver import ResolutionError, resolve_target
 from .storage import manifest_path, storage_key
 
 app = typer.Typer(
-    help="Archive entire YouTube channels with resumable, idempotent downloads.",
+    help="Archive entire YouTube channels and download single videos from YouTube, Instagram, and JioHotstar.",
     no_args_is_help=True,
 )
 console = Console()
@@ -80,17 +80,14 @@ def _check_ffmpeg(require: bool) -> None:
 
 @app.command()
 def index(
-    url: str = typer.Argument(..., help="Channel or playlist URL."),
+    url: str = typer.Argument(..., help="Channel, playlist, or single video URL (YouTube, Instagram, or JioHotstar)."),
     output: str = typer.Option("channel.json", "--output", "-o", help="Output file (.json or .csv)."),
-    playlist: Optional[bool] = typer.Option(None, "--playlist", is_flag=True, help="Treat the URL as a playlist instead of a channel."),
+    playlist: Optional[bool] = typer.Option(None, "--playlist", is_flag=True, help="Treat the URL as a playlist instead of a channel (YouTube only)."),
     jsonl: Optional[str] = typer.Option(None, "--jsonl", help="Write a JSONL (one video per line) export to this file."),
 ) -> None:
     """List a channel's (or playlist's) videos and export metadata (no downloads)."""
     try:
-        if playlist:
-            result = resolve_playlist(url, quiet=True)
-        else:
-            result = resolve_channel(url, quiet=True)
+        result = resolve_target(url, playlist=playlist, quiet=True)
     except (ResolutionError, ValueError) as e:
         raise _fail(str(e)) from e
 
@@ -112,8 +109,8 @@ def index(
 
 @app.command()
 def download(
-    url: str = typer.Argument(..., help="Channel or playlist URL."),
-    playlist: Optional[bool] = typer.Option(None, "--playlist", is_flag=True, help="Treat the URL as a playlist instead of a channel."),
+    url: str = typer.Argument(..., help="Channel, playlist, or single video URL (YouTube, Instagram, or JioHotstar)."),
+    playlist: Optional[bool] = typer.Option(None, "--playlist", is_flag=True, help="Treat the URL as a playlist instead of a channel (YouTube only)."),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Base download directory (default ./downloads)."),
     quality: Optional[str] = typer.Option(None, "--quality", help="e.g. 1080p, best, worst (default best)."),
     audio_only: Optional[bool] = typer.Option(None, "--audio-only", is_flag=True, help="Download audio only (mp3)."),
@@ -137,7 +134,7 @@ def download(
     log: Optional[str] = typer.Option(None, "--log", help="Write a per-run log to this file."),
     template: Optional[str] = typer.Option(None, "--template", help="Override the yt-dlp output template (e.g. '%(title)s.%(ext)s')."),
 ) -> None:
-    """Download (filtered) videos from a channel or playlist, resumably."""
+    """Download (filtered) videos from a channel, playlist, or single video, resumably."""
     cfg = Config.from_file(config or DEFAULT_CONFIG_PATH)
     cli_opts = {
         "output_dir": output,
@@ -173,10 +170,7 @@ def download(
         raise _fail("--manifest must be one of: auto, json, sqlite")
 
     try:
-        if playlist:
-            result = resolve_playlist(url, quiet=True)
-        else:
-            result = resolve_channel(url, quiet=True)
+        result = resolve_target(url, playlist=playlist, quiet=True)
     except (ResolutionError, ValueError) as e:
         raise _fail(str(e)) from e
 
@@ -192,7 +186,13 @@ def download(
 
     if dry_run:
         dry_summary = dry_run_summary({**result, "videos": videos})
-        label = "Playlist" if target_type == "playlist" else "Channel"
+        # Map the resolver's target_type to a human-readable label for the plan.
+        target_type_label = {
+            "playlist": "Playlist",
+            "channel": "Channel",
+            "video": "Video",
+        }
+        label = target_type_label.get(target_type, target_type.capitalize())
         console.print(f"[bold]{label}:[/] {target_name}")
         console.print(f"[bold]Videos to download:[/] {dry_summary['count']}")
         if dry_summary["date_range"]:
@@ -244,8 +244,8 @@ def download(
 
 @app.command()
 def verify(
-    target: str = typer.Argument(..., help="Channel/playlist URL, or a path to a *.manifest.json file."),
-    playlist: Optional[bool] = typer.Option(None, "--playlist", is_flag=True, help="Treat the URL as a playlist."),
+    target: str = typer.Argument(..., help="Channel/playlist URL, single video URL, or a path to a *.manifest.json file."),
+    playlist: Optional[bool] = typer.Option(None, "--playlist", is_flag=True, help="Treat the URL as a playlist (YouTube only)."),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Base download directory (default ./downloads)."),
     delete_orphans: bool = typer.Option(False, "--delete-orphans", help="Delete orphan media files on disk (asks for confirmation)."),
 ) -> None:
@@ -258,10 +258,7 @@ def verify(
             output_dir = str(Path(target).parent)
     else:
         try:
-            if playlist:
-                result = resolve_playlist(target, quiet=True)
-            else:
-                result = resolve_channel(target, quiet=True)
+            result = resolve_target(target, playlist=playlist, quiet=True)
         except (ResolutionError, ValueError) as e:
             raise _fail(str(e)) from e
         key = storage_key(result)
@@ -318,7 +315,7 @@ def verify(
 @app.command()
 def update(
     url: str = typer.Argument(..., help="Channel or playlist URL to re-index."),
-    playlist: Optional[bool] = typer.Option(None, "--playlist", is_flag=True, help="Treat the URL as a playlist."),
+    playlist: Optional[bool] = typer.Option(None, "--playlist", is_flag=True, help="Treat the URL as a playlist (YouTube only)."),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Base download directory (default ./downloads)."),
     config: Optional[str] = typer.Option(None, "--config", help="Path to a TOML config file."),
 ) -> None:
@@ -327,10 +324,7 @@ def update(
     cfg.merge_cli({"output_dir": output})  # -o overrides config default
     output_dir = cfg.output_dir or "./downloads"
     try:
-        if playlist:
-            result = resolve_playlist(url, quiet=True)
-        else:
-            result = resolve_channel(url, quiet=True)
+        result = resolve_target(url, playlist=playlist, quiet=True)
     except (ResolutionError, ValueError) as e:
         raise _fail(str(e)) from e
 
