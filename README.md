@@ -36,6 +36,7 @@ limiting, and a clean CLI.
 - [Limitations](#limitations)
 - [Roadmap](#roadmap)
 - [Development](#development)
+- [Web UI](#web-ui)
 - [Shell completions](#shell-completions)
 - [Changelog](#changelog)
 - [License](#license)
@@ -287,6 +288,42 @@ ruff check ytchannel   # lint
 A local, browser-based control panel for non-technical users — paste a channel or
 playlist URL, watch downloads progress live, and cancel anytime. It drives the same
 resumable engine as the CLI.
+
+### How to start it — simple steps (no tech knowledge needed)
+
+1. **Install Python.** Download the latest "Python 3" installer from
+   [python.org](https://www.python.org/downloads/) and run it. On the first screen of
+   the installer, **tick the box that says "Add Python to PATH"** before clicking
+   *Install Now*. (This step is only needed once.)
+2. **Open a terminal / command prompt.**
+   - Windows: press the **Start** button, type `cmd`, and press Enter.
+   - macOS: open the **Terminal** app (in Applications → Utilities).
+   - Linux: open your terminal app.
+3. **Install the program.** Type this and press Enter:
+   ```
+   pip install quantum-downloader[web]
+   ```
+   Wait until it finishes (it may take a minute).
+4. **Install ffmpeg** (needed to actually save videos):
+   - Windows: download from [ffmpeg.org](https://ffmpeg.org/download.html), unzip it,
+     and follow a guide to add it to your PATH — or just use the standalone
+     `ytchannel.exe` from [GitHub Releases](https://github.com/beast-ofcourse/Quantum-Downloader/releases),
+     which still needs ffmpeg on PATH.
+   - macOS / Linux: install ffmpeg with your package manager (e.g. Homebrew, apt).
+5. **Start the web interface.** In the same terminal, type:
+   ```
+   ytchannel serve
+   ```
+   Your default web browser should open automatically to the interface.
+6. **If the browser doesn't open,** copy this into your browser's address bar and
+   press Enter:
+   ```
+   http://127.0.0.1:8765/
+   ```
+7. **To stop it,** go back to the terminal and press **Ctrl + C**.
+
+> The interface only runs on your own computer and is not visible to anyone else on
+> the internet. To close it completely, stop the `ytchannel serve` command above.
 
 ```bash
 pip install quantum-downloader[web]   # or: pip install -e ".[web]"
