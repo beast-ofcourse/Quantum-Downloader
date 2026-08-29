@@ -33,6 +33,7 @@ It also downloads **single videos** from **YouTube**, **Instagram**, and
 - [How it works](#how-it-works)
 - [Requirements](#requirements)
 - [Installation](#installation)
+- [Updating](#updating)
 - [Usage](#usage)
 - [Output structure](#output-structure)
 - [Configuration](#configuration)
@@ -213,6 +214,31 @@ cd Quantum-Downloader
 pip install -e .
 ytchannel --version
 ```
+
+## Updating
+
+Keep the tool current to get new platforms and fixes.
+
+- **PyPI (recommended):**
+  ```bash
+  pip install --upgrade quantum-downloader
+  ytchannel --version        # confirm the new version
+  ```
+- **From source:** pull and reinstall:
+  ```bash
+  git pull
+  pip install -e . --upgrade
+  ```
+- **Docker:** rebuild the image (ffmpeg is baked in):
+  ```bash
+  docker build -t quantum-downloader .
+  ```
+- **Windows standalone exe:** download the latest `ytchannel.exe` from the
+  [GitHub Releases](https://github.com/beast-ofcourse/Quantum-Downloader/releases) page
+  and replace your old copy.
+
+> After updating, re-run any `download` command as usual — your manifests and
+> downloaded files are untouched, and completed videos are still skipped.
 
 ## Usage
 
